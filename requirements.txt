@@ -1,0 +1,14 @@
+streamlit==1.56.0
+google-generativeai==0.8.6
+yt-dlp==2026.3.17
+youtube-transcript-api==1.2.4
+requests==2.33.1
+beautifulsoup4==4.14.3
+pandas==3.0.2
+tenacity==9.1.4
+python-dotenv
+feedparser==6.0.11
+# Testing
+pytest==9.0.3
+pytest-playwright==0.7.2
+playwright==1.58.0

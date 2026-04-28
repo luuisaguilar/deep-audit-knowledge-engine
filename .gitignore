@@ -1,0 +1,27 @@
+# Secretos
+.env
+
+# Entorno virtual
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+
+# Streamlit
+.streamlit/
+
+# Datos locales
+*.db
+youtube_audit_report.md
+
+# Docs legacy (migrados a docgrab)
+Agente de Documentacion/
+
+# OS
+.DS_Store
+Thumbs.db
