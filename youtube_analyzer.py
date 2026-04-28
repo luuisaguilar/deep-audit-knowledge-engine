@@ -2,6 +2,7 @@ import time
 from yt_dlp import YoutubeDL
 from youtube_transcript_api import YouTubeTranscriptApi
 from config import generate_with_retry
+from core.prompt_loader import render_prompt
 
 
 def get_video_list(url, limit=None):
@@ -58,34 +59,18 @@ def get_transcript(video_id):
 
 def analyze_video_content(video_data, transcript, transcript_lang=None):
     """Genera una nota de Obsidian a partir de los datos del video usando Gemini."""
-    content = f"Título: {video_data['title']}\n"
-    if transcript:
-        content += f"\nTranscripción (fragmento): {transcript[:10000]}"
-    else:
-        content += f"\nDescripción: {video_data['description'][:2000]}"
-
     instruction = "Genera el reporte en ESPAÑOL." if transcript_lang == 'es' else "Generate the report in ENGLISH."
 
-    prompt = (
-        "Actúa como un experto en gestión del conocimiento técnico. Genera una nota para Obsidian.\n\n"
-        "REQUISITO CRÍTICO: Comienza SIEMPRE con un bloque YAML Properties exactamente así:\n"
-        "---\n"
-        "tipo: video_research\n"
-        f"fuente: \"{video_data.get('url', 'N/A')}\"\n"
-        f"canal: \"{video_data.get('channel', 'N/A')}\"\n"
-        f"fecha_video: {video_data.get('date', 'N/A')}\n"
-        "estado: procesado\n"
-        f"idioma_original: {transcript_lang}\n"
-        "---\n\n"
-        f"# {video_data.get('title', 'Análisis de Video')}\n\n"
-        f"{instruction}\n"
-        "SECCIONES REQUERIDAS:\n"
-        "1. **Resumen Ejecutivo**: 3 puntos clave.\n"
-        "2. **Stack Tecnológico**: Si se mencionan lenguajes/herramientas.\n"
-        "3. **Decisiones de Arquitectura / Lógica**: Por qué y cómo funciona lo explicado.\n"
-        "4. **Action Items / Hallazgos**: Ideas accionables sacadas del video.\n\n"
-        f"CONTENIDO:\n{content}"
-    )
+    prompt = render_prompt("youtube_analysis", {
+        "title": video_data.get('title', 'Análisis de Video'),
+        "url": video_data.get('url', 'N/A'),
+        "channel": video_data.get('channel', 'N/A'),
+        "date": video_data.get('date', 'N/A'),
+        "language": transcript_lang or 'unknown',
+        "instruction": instruction,
+        "transcript": transcript[:10000] if transcript else None,
+        "description": video_data.get('description', '')[:2000],
+    })
 
     return generate_with_retry(prompt)
 

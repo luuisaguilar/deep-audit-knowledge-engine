@@ -32,7 +32,7 @@ def test_tabs_existence(streamlit_app):
         page.wait_for_selector("text=Deep Audit Engine", timeout=10000)
         
         # Check tabs using regex to skip emojis
-        tab_list = ["YouTube Analysis", "GitHub Deep Audit", "Web Ingestion", "Digital Chef", "RSS Monitor", "Obsidian Sync", "NotebookLM Pack"]
+        tab_list = ["YouTube Analysis", "GitHub Deep Audit", "Web Ingestion", "Digital Chef", "RSS Monitor", "Obsidian Sync", "NotebookLM Pack", "Analytics"]
         for tab in tab_list:
             expect_tab = page.get_by_text(re.compile(tab, re.IGNORECASE))
             assert expect_tab.first.is_visible(), f"Tab {tab} not found"

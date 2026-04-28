@@ -13,6 +13,7 @@ from knowledge_sync import sync_all_to_obsidian
 from rss_manager import fetch_new_articles, process_rss_article
 from rss_db import get_feeds, add_feed, remove_feed
 from notebooklm_pack import generate_source_list, generate_context_markdown
+from core.db import has_been_processed, record_ingestion, get_ingestion_stats, list_recent_ingestions
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -60,7 +61,7 @@ with st.sidebar:
         st.rerun()
 
 def save_note(content, filename, subfolder):
-    """Guarda una nota en el vault local y la registra en resultados."""
+    """Guarda una nota en el vault local y retorna la ruta del archivo guardado, o None."""
     if not filename.endswith(".md"): filename += ".md"
     basename, ext = os.path.splitext(filename)
     clean_base = "".join([c if c.isalnum() or c in (' ', '_', '-') else "_" for c in basename])
@@ -70,12 +71,13 @@ def save_note(content, filename, subfolder):
         target_dir = os.path.join(st.session_state.vault_path, subfolder)
         os.makedirs(target_dir, exist_ok=True)
         try:
-            with open(os.path.join(target_dir, clean_name), "w", encoding="utf-8") as f:
+            filepath = os.path.join(target_dir, clean_name)
+            with open(filepath, "w", encoding="utf-8") as f:
                 f.write(content)
-            return True
+            return filepath
         except Exception as e:
             st.error(f"Error al escribir en Vault: {e}")
-    return False
+    return None
 
 # --- MAIN UI ---
 st.title("🧠 Deep Audit Engine")
@@ -94,7 +96,7 @@ if 'transcript_cache' not in st.session_state: st.session_state.transcript_cache
 if 'rss_articles' not in st.session_state: st.session_state.rss_articles = []
 if 'rss_results' not in st.session_state: st.session_state.rss_results = {}
 
-tabs = st.tabs(["📺 YouTube Analysis", "💻 GitHub Deep Audit", "🌐 Web Ingestion", "🍳 Digital Chef", "📰 RSS Monitor", "🧠 Obsidian Sync", "📚 NotebookLM Pack"])
+tabs = st.tabs(["📺 YouTube Analysis", "💻 GitHub Deep Audit", "🌐 Web Ingestion", "🍳 Digital Chef", "📰 RSS Monitor", "🧠 Obsidian Sync", "📚 NotebookLM Pack", "📊 Analytics"])
 
 # ==========================================
 # TAB 0: YOUTUBE
@@ -142,18 +144,29 @@ with tabs[0]:
         if selected_vids and st.button("🚀 Iniciar Auditoría YT"):
             progress = st.progress(0)
             for idx, vid in enumerate(selected_vids):
+                source_url = vid.get('url', f"https://www.youtube.com/watch?v={vid['id']}")
+                if has_been_processed(source_url):
+                    st.info(f"⏭️ Ya procesado: {vid['title']}")
+                    progress.progress((idx + 1) / len(selected_vids))
+                    continue
                 with st.spinner(f"Analizando: {vid['title']}"):
-                    if vid['id'] not in st.session_state.transcript_cache:
-                        st.session_state.transcript_cache[vid['id']] = get_transcript(vid['id'])
-                    t, lang = st.session_state.transcript_cache[vid['id']]
-                    analysis = analyze_video_content(vid, t, lang)
-                    
-                    if "⚠️ ERROR" not in analysis:
-                        st.session_state.yt_audit_results[vid['id']] = {'title': vid['title'], 'content': analysis}
-                        save_note(analysis, f"YT_{vid['title']}", "10_YouTube")
-                        st.expander(f"✅ {vid['title']}").markdown(analysis)
-                    else:
-                        st.error(f"Error en {vid['title']}: {analysis}")
+                    try:
+                        if vid['id'] not in st.session_state.transcript_cache:
+                            st.session_state.transcript_cache[vid['id']] = get_transcript(vid['id'])
+                        t, lang = st.session_state.transcript_cache[vid['id']]
+                        analysis = analyze_video_content(vid, t, lang)
+                        
+                        if "⚠️ ERROR" not in analysis:
+                            st.session_state.yt_audit_results[vid['id']] = {'title': vid['title'], 'content': analysis}
+                            vault_file = save_note(analysis, f"YT_{vid['title']}", "10_YouTube")
+                            record_ingestion('youtube', source_url, vid['title'], vault_path=str(vault_file) if vault_file else None)
+                            st.expander(f"✅ {vid['title']}").markdown(analysis)
+                        else:
+                            record_ingestion('youtube', source_url, vid['title'], status='failed', error_message=analysis)
+                            st.error(f"Error en {vid['title']}: {analysis}")
+                    except Exception as e:
+                        record_ingestion('youtube', source_url, vid['title'], status='failed', error_message=str(e))
+                        st.error(f"Error en {vid['title']}: {e}")
                 progress.progress((idx + 1) / len(selected_vids))
 
     if st.session_state.yt_audit_results:
@@ -200,16 +213,28 @@ with tabs[1]:
         if selected_repos and st.button("🧬 Iniciar Deep Audit GitHub"):
             progress_gh = st.progress(0)
             for idx, repo in enumerate(selected_repos):
+                source_url = repo.get('url', f"https://github.com/{repo['full_name']}")
+                if has_been_processed(source_url):
+                    st.info(f"⏭️ Ya procesado: {repo['name']}")
+                    progress_gh.progress((idx + 1) / len(selected_repos))
+                    continue
                 with st.spinner(f"Escaneando: {repo['name']}"):
-                    structure = get_repo_structure(repo['owner'], repo['name'], repo.get('default_branch', 'main'))
-                    crit_files = identify_critical_files(structure)
-                    files_data = {f: fetch_file_content(repo['owner'], repo['name'], f) for f in crit_files if fetch_file_content(repo['owner'], repo['name'], f)}
-                    analysis_gh = analyze_repository_wiki(repo['owner'], repo['name'], repo, structure, files_data)
-                    
-                    if "⚠️ ERROR" not in analysis_gh:
-                        st.session_state.gh_audit_results[repo['full_name']] = {'name': repo['name'], 'content': analysis_gh}
-                        save_note(analysis_gh, f"WIKI_{repo['name']}", "20_GitHub")
-                        st.expander(f"✅ {repo['name']} Wiki").markdown(analysis_gh)
+                    try:
+                        structure = get_repo_structure(repo['owner'], repo['name'], repo.get('default_branch', 'main'))
+                        crit_files = identify_critical_files(structure)
+                        files_data = {f: fetch_file_content(repo['owner'], repo['name'], f) for f in crit_files if fetch_file_content(repo['owner'], repo['name'], f)}
+                        analysis_gh = analyze_repository_wiki(repo['owner'], repo['name'], repo, structure, files_data)
+                        
+                        if "⚠️ ERROR" not in analysis_gh:
+                            st.session_state.gh_audit_results[repo['full_name']] = {'name': repo['name'], 'content': analysis_gh}
+                            vault_file = save_note(analysis_gh, f"WIKI_{repo['name']}", "20_GitHub")
+                            record_ingestion('github', source_url, repo['name'], vault_path=str(vault_file) if vault_file else None)
+                            st.expander(f"✅ {repo['name']} Wiki").markdown(analysis_gh)
+                        else:
+                            record_ingestion('github', source_url, repo['name'], status='failed', error_message=analysis_gh)
+                    except Exception as e:
+                        record_ingestion('github', source_url, repo['name'], status='failed', error_message=str(e))
+                        st.error(f"Error en {repo['name']}: {e}")
                 progress_gh.progress((idx + 1) / len(selected_repos))
 
     if st.session_state.gh_audit_results:
@@ -242,14 +267,25 @@ with tabs[2]:
         if selected_web and st.button("⚡ Procesar Artículos Web"):
             prog_web = st.progress(0)
             for idx, item in enumerate(selected_web):
+                if has_been_processed(item['url']):
+                    st.info(f"⏭️ Ya procesado: {item['url']}")
+                    prog_web.progress((idx+1)/len(selected_web))
+                    continue
                 with st.spinner(f"Crawling: {item['url']}"):
-                    web_data = fetch_web_content(item['url'])
-                    analysis = analyze_web_content(web_data)
-                    if "⚠️ ERROR" not in analysis:
-                        title = web_data.get('title', 'Web_Note')
-                        st.session_state.web_audit_results[item['url']] = {'title': title, 'content': analysis}
-                        save_note(analysis, f"WEB_{title}", "30_Web")
-                        st.expander(f"✅ {title}").markdown(analysis)
+                    try:
+                        web_data = fetch_web_content(item['url'])
+                        analysis = analyze_web_content(web_data)
+                        if "⚠️ ERROR" not in analysis:
+                            title = web_data.get('title', 'Web_Note')
+                            st.session_state.web_audit_results[item['url']] = {'title': title, 'content': analysis}
+                            vault_file = save_note(analysis, f"WEB_{title}", "30_Web")
+                            record_ingestion('web', item['url'], title, vault_path=str(vault_file) if vault_file else None)
+                            st.expander(f"✅ {title}").markdown(analysis)
+                        else:
+                            record_ingestion('web', item['url'], status='failed', error_message=analysis)
+                    except Exception as e:
+                        record_ingestion('web', item['url'], status='failed', error_message=str(e))
+                        st.error(f"Error: {e}")
                 prog_web.progress((idx+1)/len(selected_web))
 
     if st.session_state.web_audit_results:
@@ -370,3 +406,61 @@ with tabs[6]:
             st.download_button("⬇️ Descargar Contexto", ctx_md, "context.md")
     else:
         st.warning("No hay fuentes procesadas en esta sesión.")
+
+# ==========================================
+# TAB 7: ANALYTICS
+# ==========================================
+with tabs[7]:
+    st.header("📊 Knowledge Engine Analytics")
+    st.markdown("Estadísticas globales de todas las ingestas registradas en `knowledge.db`.")
+
+    stats = get_ingestion_stats()
+
+    # --- KPI cards ---
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Total Ingestas", stats["total"])
+    k2.metric("✅ Exitosas", stats["success"])
+    k3.metric("❌ Fallidas", stats["failed"])
+
+    st.divider()
+
+    # --- By source type ---
+    if stats["by_type"]:
+        st.subheader("📂 Ingestas por Tipo de Fuente")
+        type_df = pd.DataFrame(stats["by_type"], columns=["Fuente", "Cantidad"])
+        st.bar_chart(type_df.set_index("Fuente"))
+
+    # --- Timeline ---
+    if stats["by_date"]:
+        st.subheader("📅 Timeline de Procesamiento (últimos 30 días)")
+        date_df = pd.DataFrame(stats["by_date"], columns=["Fecha", "Cantidad"])
+        date_df = date_df.sort_values("Fecha")
+        st.line_chart(date_df.set_index("Fecha"))
+
+    st.divider()
+
+    # --- Recent items table ---
+    if stats["recent"]:
+        st.subheader("🕐 Últimas 10 Ingestas")
+        recent_df = pd.DataFrame(stats["recent"])
+        display_cols = ["source_type", "title", "source_url", "status", "processed_at"]
+        available_cols = [c for c in display_cols if c in recent_df.columns]
+        st.dataframe(
+            recent_df[available_cols].rename(columns={
+                "source_type": "Tipo",
+                "title": "Título",
+                "source_url": "URL",
+                "status": "Estado",
+                "processed_at": "Procesado",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.info("Aún no hay ingestas registradas. Procesa contenido desde cualquier tab para ver estadísticas aquí.")
+
+    # --- Full history download ---
+    all_ingestions = list_recent_ingestions(limit=500)
+    if all_ingestions:
+        csv_data = pd.DataFrame(all_ingestions).to_csv(index=False)
+        st.download_button("📥 Exportar historial completo (CSV)", csv_data, "ingestion_history.csv", "text/csv")

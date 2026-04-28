@@ -2,6 +2,7 @@ import requests
 import datetime
 from bs4 import BeautifulSoup
 from config import generate_with_retry
+from core.prompt_loader import render_prompt
 
 
 def fetch_web_content(url):
@@ -35,25 +36,11 @@ def analyze_web_content(data):
 
     today = datetime.date.today().isoformat()
 
-    prompt = (
-        "Actúa como un Curador de Conocimiento Senior y experto en Zettelkasten.\n"
-        "Analiza el siguiente texto de un sitio web y genera una nota estructurada para Obsidian.\n\n"
-        "REQUISITO CRÍTICO: Comienza SIEMPRE con el bloque YAML exactamente así:\n"
-        "---\n"
-        "tipo: web_research\n"
-        f"fuente: \"{data['url']}\"\n"
-        f"fecha_ingesta: {today}\n"
-        "categoria: investigacion\n"
-        "estado: procesado\n"
-        "---\n\n"
-        f"# {data['title']}\n\n"
-        "Analiza el contenido. Si el idioma original es español, redacta en ESPAÑOL. De lo contrario, en INGLÉS.\n\n"
-        "SECCIONES REQUERIDAS:\n"
-        "1. **Resumen Ejecutivo**: Las 3 ideas más potentes del artículo.\n"
-        "2. **Conceptos Técnicos**: Definiciones o herramientas mencionadas.\n"
-        "3. **Análisis de Valor**: ¿Por qué es importante este contenido para un CTO/Arquitecto?\n"
-        "4. **Action Items / Siguientes Pasos**: Sugerencias basadas en la lectura.\n\n"
-        f"CONTENIDO WEB:\n{data['content']}"
-    )
+    prompt = render_prompt("web_curation", {
+        "url": data['url'],
+        "title": data.get('title', 'Sin Título'),
+        "date": today,
+        "content": data['content'],
+    })
 
     return generate_with_retry(prompt)

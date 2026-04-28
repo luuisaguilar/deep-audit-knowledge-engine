@@ -1,6 +1,7 @@
 import requests
 import base64
 from config import GITHUB_TOKEN, generate_with_retry
+from core.prompt_loader import render_prompt
 
 HEADERS = {"Authorization": f"token {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}
 
@@ -80,35 +81,20 @@ def analyze_repository_wiki(_owner, repo, repo_info, file_structure, files_data)
     if not files_data:
         return "⚠️ Error: No se pudieron extraer archivos críticos para el análisis técnico."
 
-    context = (
-        f"Repositorio: {repo_info['full_name']}\n"
-        f"Descripción: {repo_info['description']}\n"
-        f"Rama Principal: {repo_info.get('default_branch', 'N/A')}\n"
-        f"Lenguaje Principal: {repo_info['language']}\n"
-        f"Estructura de Archivos (Muestra): {', '.join(file_structure[:40])}\n\n"
-    )
+    # Build files context block
+    files_block = ""
     for path, content in files_data.items():
-        context += f"--- ARCHIVO: {path} ---\n{content[:4000]}\n\n"
+        files_block += f"--- ARCHIVO: {path} ---\n{content[:4000]}\n\n"
 
-    prompt = (
-        "Actúa como un CTO y Arquitecto de Software Senior. Genera una WIKI TÉCNICA detallada formateada para Obsidian.\n\n"
-        "REQUISITO CRÍTICO: Comienza SIEMPRE con un bloque YAML Properties exactamente así:\n"
-        "---\n"
-        "tipo: repo_audit\n"
-        f"repo: \"{repo_info['full_name']}\"\n"
-        f"stack: \"{repo_info['language']}\"\n"
-        f"stars: {repo_info['stars']}\n"
-        "estado: auditado\n"
-        "---\n\n"
-        f"# Wiki Técnica: {repo}\n\n"
-        "Si el README o el código sugieren idioma español, redacta en ESPAÑOL. De lo contrario, en INGLÉS.\n\n"
-        "SECCIONES REQUERIDAS:\n"
-        "1. **Tech Stack & Tools**: Frameworks, lenguajes, DBs.\n"
-        "2. **Arquitectura & Estructura**: Flujo del proyecto y carpetas.\n"
-        "3. **Modelado de Datos**: Tablas o entidades.\n"
-        "4. **Lógica Principal**: Procesos clave.\n"
-        "5. **Conclusiones de Auditoría**: Fortalezas técnicas.\n\n"
-        f"CONTENIDO TÉCNICO:\n{context}"
-    )
+    prompt = render_prompt("github_wiki", {
+        "full_name": repo_info['full_name'],
+        "repo_name": repo,
+        "description": repo_info.get('description', ''),
+        "default_branch": repo_info.get('default_branch', 'N/A'),
+        "language": repo_info.get('language', 'N/A'),
+        "stars": repo_info.get('stars', 0),
+        "file_structure": ', '.join(file_structure[:40]),
+        "files_content": files_block,
+    })
 
     return generate_with_retry(prompt)
