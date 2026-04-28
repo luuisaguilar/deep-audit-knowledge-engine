@@ -2,7 +2,59 @@
 
 ---
 
-## 1. SQLite Local — `rss_feeds.db` (Sprint 4)
+## 1. SQLite Central — `knowledge.db`
+
+Base de datos central de historial de ingestas. Habilita deduplicación global y analytics.
+Archivo en el directorio raíz del proyecto. Manejada por `core/db.py`. Se crea automáticamente al importar el módulo via `init_db()`.
+
+### Tabla `ingestions`
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `id` | INTEGER PK AUTOINCREMENT | Identificador único |
+| `source_type` | TEXT NOT NULL | Tipo de fuente: `youtube`, `github`, `web`, `rss`, `chef` |
+| `source_url` | TEXT UNIQUE NOT NULL | URL fuente — clave de deduplicación |
+| `title` | TEXT | Título del contenido procesado |
+| `processed_at` | DATETIME DEFAULT CURRENT_TIMESTAMP | Fecha/hora del procesamiento |
+| `model_used` | TEXT DEFAULT 'gemini-2.0-flash' | Modelo de IA utilizado |
+| `tokens_estimated` | INTEGER | Tokens estimados consumidos (futuro) |
+| `vault_path` | TEXT | Ruta del archivo `.md` guardado en Obsidian |
+| `status` | TEXT DEFAULT 'success' | `success` o `failed` |
+| `error_message` | TEXT | Mensaje de error si `status = 'failed'` |
+| `metadata_json` | TEXT | JSON con metadatos adicionales (canal, estrellas, etc.) |
+
+### DDL de inicialización
+
+```sql
+CREATE TABLE IF NOT EXISTS ingestions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type     TEXT    NOT NULL,
+    source_url      TEXT    UNIQUE NOT NULL,
+    title           TEXT,
+    processed_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    model_used      TEXT    DEFAULT 'gemini-2.0-flash',
+    tokens_estimated INTEGER,
+    vault_path      TEXT,
+    status          TEXT    DEFAULT 'success',
+    error_message   TEXT,
+    metadata_json   TEXT
+);
+```
+
+### Funciones disponibles (`core/db.py`)
+
+| Función | Descripción |
+|---------|-------------|
+| `init_db()` | Crea la tabla si no existe (idempotente) |
+| `record_ingestion(source_type, source_url, title, ...)` | Inserta un registro. Retorna `row_id` o `None` si ya existe |
+| `has_been_processed(source_url)` | Retorna `True` si la URL ya fue procesada con status `success` |
+| `get_ingestion_by_url(source_url)` | Retorna el registro completo o `None` |
+| `list_recent_ingestions(limit=50)` | Últimas N ingestas, más reciente primero |
+| `get_ingestion_stats()` | Agregaciones para el dashboard (total, success, failed, by_type, by_date, recent) |
+
+---
+
+## 2. SQLite Local — `rss_feeds.db`
 
 Base de datos local para el RSS Monitor. Archivo en el directorio raíz del proyecto.
 Manejada por `rss_db.py`. Se crea automáticamente en el primer arranque via `init_db()`.
@@ -12,93 +64,20 @@ Manejada por `rss_db.py`. Se crea automáticamente en el primer arranque via `in
 | Campo | Tipo | Descripción |
 |-------|------|-------------|
 | `id` | INTEGER PK AUTOINCREMENT | Identificador único |
-| `name` | TEXT NOT NULL | Nombre legible del feed (ej: "The Pragmatic Engineer") |
-| `url` | TEXT NOT NULL UNIQUE | URL del feed RSS |
-| `created_at` | TEXT NOT NULL | ISO 8601 — fecha de alta |
-| `active` | INTEGER NOT NULL DEFAULT 1 | Flag booleano: 1=activo, 0=pausado |
+| `url` | TEXT UNIQUE NOT NULL | URL del feed RSS |
+| `nombre` | TEXT NOT NULL | Nombre legible del feed |
+| `categoria` | TEXT DEFAULT 'General' | Categoría temática |
 
-### Tabla `seen_articles`
+### Tabla `articles`
 
 | Campo | Tipo | Descripción |
 |-------|------|-------------|
 | `id` | INTEGER PK AUTOINCREMENT | Identificador único |
-| `feed_id` | INTEGER NOT NULL | FK → `feeds.id` ON DELETE CASCADE |
-| `article_url` | TEXT NOT NULL | URL canónica del artículo o episodio |
-| `article_title` | TEXT | Título en el momento del parsing |
-| `processed_at` | TEXT NOT NULL | ISO 8601 — fecha de procesamiento |
-| `obsidian_filename` | TEXT | Nombre del `.md` generado en Obsidian |
-| `status` | TEXT NOT NULL DEFAULT 'processed' | `processed`, `error`, `skipped` (podcasts), `podcast_processed` |
-
-**Constraint**: `UNIQUE(feed_id, article_url)` — evita duplicados.
-
-**Índice recomendado**: sobre `article_url` para lookups O(1) en `is_seen()`.
-
-### DDL de inicialización
-
-```sql
-CREATE TABLE IF NOT EXISTS feeds (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    url TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL,
-    active INTEGER NOT NULL DEFAULT 1
-);
-
-CREATE TABLE IF NOT EXISTS seen_articles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
-    article_url TEXT NOT NULL,
-    article_title TEXT,
-    processed_at TEXT NOT NULL,
-    obsidian_filename TEXT,
-    status TEXT NOT NULL DEFAULT 'processed',
-    UNIQUE(feed_id, article_url)
-);
-
-CREATE INDEX IF NOT EXISTS idx_seen_url ON seen_articles(article_url);
-```
-
----
-
-## 2. Supabase (Planeado — Sprint futuro)
-
-Para caché de análisis de Gemini. Evita re-gastar cuota procesando el mismo contenido dos veces.
-
-### Tabla `audit_records`
-
-| Campo | Tipo | Descripción |
-|-------|------|-------------|
-| `id` | uuid PK | Identificador único |
-| `source_url` | text UNIQUE | URL fuente (YT, GH, Web, Podcast) |
-| `source_type` | text | Enum: `youtube`, `github`, `web`, `podcast` |
-| `content_hash` | text | SHA256 del contenido original para detectar cambios |
-| `generated_markdown` | text | Reporte completo generado por Gemini |
-| `metadata` | jsonb | Metadatos extra: título, canal, estrellas, vistas, idioma |
-| `created_at` | timestamp | Fecha del primer análisis |
-| `updated_at` | timestamp | Fecha de la última actualización |
-
-### Tabla `source_tracking`
-
-| Campo | Tipo | Descripción |
-|-------|------|-------------|
-| `id` | uuid PK | |
-| `identifier` | text | @usuario, ID de canal, o URL de feed RSS |
-| `type` | text | `channel`, `github_user`, `rss_feed` |
-| `last_indexed` | timestamp | Última vez que se listaron sus elementos |
-
-### Estrategia de Caché
-
-```
-Antes de analizar → SELECT * FROM audit_records WHERE source_url = :url
-  Si existe y content_hash coincide → retornar generated_markdown (sin llamar a Gemini)
-  Si no existe → analizar → UPSERT en audit_records
-```
-
-### Índices
-
-```sql
-CREATE INDEX idx_source_url ON audit_records(source_url);
-```
+| `feed_id` | INTEGER | FK → `feeds.id` |
+| `link` | TEXT UNIQUE NOT NULL | URL del artículo |
+| `title` | TEXT | Título del artículo |
+| `published` | TEXT | Fecha de publicación |
+| `status` | TEXT DEFAULT 'new' | `new`, `processed` |
 
 ---
 
@@ -111,3 +90,14 @@ El proyecto no escribe en estas DBs.
 |----|------|--------|
 | `auctionbot.db` | `../auctionbot/data/auctionbot.db` | AuctionBot |
 | `dexscreener_data.db` | `../dexscreener_bot/dexscreener_data.db` | DexScreener |
+
+---
+
+## 4. Supabase (Planeado — Sprint futuro)
+
+Considerado para migración cuando se necesite:
+- Acceso multi-dispositivo
+- pgvector para búsqueda semántica
+- Dashboard de analytics en tiempo real
+
+Por ahora, SQLite local es suficiente para uso personal (ver ADR-007 y ADR-010).

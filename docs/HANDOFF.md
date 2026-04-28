@@ -2,7 +2,7 @@
 
 ## ¿Qué es esto?
 
-Motor de ingesta de conocimiento técnico. Toma contenido de YouTube, GitHub, blogs web, podcasts y feeds RSS, lo analiza con Gemini 2.0 Flash, y genera notas estructuradas en Markdown directamente en un vault de Obsidian. También exporta packs de fuentes curadas para NotebookLM.
+Motor multi-agente de ingesta de conocimiento técnico. Toma contenido de YouTube, GitHub, blogs web, feeds RSS y recetas de cocina, lo analiza con Gemini 2.0 Flash usando prompts Jinja2 externalizados, y genera notas estructuradas en Markdown directamente en un vault de Obsidian. Incluye deduplicación automática, historial persistente, y dashboard de analytics.
 
 ---
 
@@ -10,14 +10,16 @@ Motor de ingesta de conocimiento técnico. Toma contenido de YouTube, GitHub, bl
 
 ### 1. Requisitos previos
 - Python 3.11+
-- Visual C++ Redistributable (Windows) — necesario para `faster-whisper` en Sprint 6
+- Git
 
 ### 2. Entorno
 
-```powershell
-cd "Agentes Youtube"
+```bash
+git clone https://github.com/luuisaguilar/deep-audit-knowledge-engine.git
+cd deep-audit-knowledge-engine
 python -m venv venv
-.\venv\Scripts\activate
+.\venv\Scripts\activate        # Windows
+# source venv/bin/activate     # Linux/Mac
 pip install -r requirements.txt
 ```
 
@@ -35,7 +37,7 @@ GITHUB_TOKEN=tu_pat_aqui
 
 ### 4. Arranque
 
-```powershell
+```bash
 streamlit run app.py
 ```
 
@@ -47,36 +49,69 @@ streamlit run app.py
 
 | Módulo | Función | Tab en la app |
 |--------|---------|---------------|
-| `youtube_analyzer.py` | Indexa canal, descarga transcripciones, analiza con Gemini | YouTube Analysis |
-| `github_analyzer.py` | Trees API, archivos ADN, genera Wiki técnica | GitHub Deep Audit |
-| `web_analyzer.py` | Scraping con BS4, análisis Zettelkasten | Web Ingestion |
-| `cooking_analyzer.py` | Extracción de recetas + lista del súper | Digital Chef |
-| `knowledge_sync.py` | Lee DBs de agentes externos, exporta a Obsidian | Obsidian Sync |
-| `config.py` | Singleton Gemini + `generate_with_retry()` con tenacity | (interno) |
+| `youtube_analyzer.py` | Indexa canal, descarga transcripciones, analiza con Gemini | 📺 YouTube Analysis |
+| `github_analyzer.py` | Trees API, archivos ADN, genera Wiki técnica | 💻 GitHub Deep Audit |
+| `web_analyzer.py` | Scraping con BS4, análisis Zettelkasten | 🌐 Web Ingestion |
+| `cooking_analyzer.py` | Extracción de recetas + lista del súper | 🍳 Digital Chef |
+| `rss_manager.py` + `rss_db.py` | RSS Monitor con persistencia SQLite | 📰 RSS Monitor |
+| `knowledge_sync.py` | Lee DBs de agentes externos, exporta a Obsidian | 🧠 Obsidian Sync |
+| `notebooklm_pack.py` | Source Pack de URLs + nota de contexto | 📚 NotebookLM Pack |
+| `core/db.py` | Historial central, dedup, stats | 📊 Analytics |
+
+### Infraestructura
+
+| Módulo | Función |
+|--------|---------|
+| `config.py` | Singleton Gemini + `generate_with_retry()` con tenacity |
+| `core/db.py` | Persistencia central `knowledge.db` — dedup + analytics |
+| `core/prompt_loader.py` | Renderizador de prompts Jinja2 desde `prompts/*.md` |
+| `prompts/*.md` | 6 templates de prompts editables sin tocar código |
 
 ### Módulos planeados
 
 | Módulo | Sprint | Función |
 |--------|--------|---------|
-| `rss_db.py` + `rss_manager.py` | Sprint 4 | RSS Monitor con SQLite |
-| `notebooklm_pack.py` | Sprint 5 | Source Pack para NotebookLM |
-| `audio_transcriber.py` + `podcast_analyzer.py` | Sprint 6 | Podcast/Audio con faster-whisper |
+| `audio_transcriber.py` + `podcast_analyzer.py` | Sprint 6 | Podcast/Audio ingestion |
+| `core/search_engine.py` | Sprint 7 | Búsqueda semántica con ChromaDB |
 
 ---
 
 ## Arquitectura clave
 
 ```
-app.py                    ← UI pura, sin lógica de negocio
+app.py                        ← UI pura, sin lógica de negocio (8 tabs)
   ↓ importa
-config.py                 ← Gemini singleton + reintentos (ÚNICO punto de IA)
-  ↓ usado por todos
-*_analyzer.py             ← Lógica pura, sin imports de streamlit
+config.py                     ← Gemini singleton + reintentos (ÚNICO punto de IA)
+core/db.py                    ← Persistencia central (knowledge.db)
+core/prompt_loader.py         ← Renderiza templates Jinja2 de prompts/
+  ↓ usados por todos
+*_analyzer.py                 ← Lógica pura, sin imports de streamlit
   ↓ resultados
-save_note()               ← Escribe en Obsidian Vault (ruta configurable en sidebar)
+save_note()                   ← Escribe en Obsidian Vault (ruta configurable en sidebar)
+record_ingestion()            ← Registra en knowledge.db (dedup + analytics)
 ```
 
 **Regla de oro**: ningún `_analyzer.py` importa `streamlit`. Toda la UI vive en `app.py`.
+
+---
+
+## Deduplicación
+
+Antes de procesar cualquier URL, `app.py` llama a `has_been_processed(url)`.
+Si la URL ya tiene un registro con `status='success'` en `knowledge.db`, se muestra "⏭️ Ya procesado" y se salta.
+Esto evita re-gastar cuota de Gemini y duplicar notas en Obsidian.
+
+---
+
+## Prompt Templates
+
+Los prompts están en `prompts/*.md` como archivos Jinja2. Para cambiar el formato, tono, o secciones de las notas generadas:
+
+1. Editar el archivo `.md` correspondiente (ej: `prompts/youtube_analysis.md`)
+2. Reiniciar Streamlit
+3. Procesar contenido — el nuevo prompt se aplica automáticamente
+
+Variables disponibles en cada template están documentadas como `{{ variable }}` dentro del archivo.
 
 ---
 
@@ -86,11 +121,10 @@ save_note()               ← Escribe en Obsidian Vault (ruta configurable en si
 |---------|-----------|
 | `10_YouTube/` | Auditorías técnicas de videos |
 | `20_GitHub/` | Wikis de repositorios |
-| `30_Web/` | Artículos web + subdirectorio `RSS/` (Sprint 4) |
-| `40_NotebookLM/` | Notas de contexto del Source Pack (Sprint 5) |
+| `30_Web/` | Artículos web |
+| `40_NotebookLM/` | Notas de contexto del Source Pack |
 | `40_Agente_Sync/` | Reportes de AuctionBot, DexScreener |
 | `50_Recetas/` | Recetas y listas del súper |
-| `60_Podcasts/` | Episodios transcritos (Sprint 6) |
 
 ---
 
@@ -99,8 +133,9 @@ save_note()               ← Escribe en Obsidian Vault (ruta configurable en si
 Ver `docs/ADR.md` para el razonamiento completo. Resumen:
 
 - **config.py centraliza todo lo de Gemini** — no tocar la inicialización del modelo en otro lado
+- **knowledge.db para dedup y analytics** — registra cada ingesta cross-module
+- **Prompts externalizados en Jinja2** — iterar calidad sin tocar código Python
 - **SQLite local para RSS** — no Supabase (demasiado para uso personal, sin concurrencia)
-- **faster-whisper modelo `base`** — 74MB, buena precisión, corre en CPU
 - **NotebookLM sin API** — el Source Pack es el workaround hasta que Google publique API
 
 ---
@@ -117,7 +152,7 @@ Ver `docs/ADR.md` para el razonamiento completo. Resumen:
 
 ## Tests
 
-```powershell
+```bash
 # Requiere que Playwright esté instalado
 playwright install chromium
 
@@ -125,7 +160,7 @@ playwright install chromium
 pytest test_app_ui.py -v
 ```
 
-Los tests levantan una instancia de Streamlit en el puerto 8502 y verifican la existencia de tabs y elementos UI clave.
+Los tests levantan una instancia de Streamlit en el puerto 8502 y verifican la existencia de los 8 tabs y elementos UI clave.
 
 ---
 

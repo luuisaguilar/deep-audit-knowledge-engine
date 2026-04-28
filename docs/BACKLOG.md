@@ -38,36 +38,47 @@
     - Arrancar la app sin `.env` y verificar que falla con mensaje claro (no KeyError).
     - Procesar el mismo video dos veces y verificar (via logs) que la segunda vez no llama a `get_transcript`.
 
-### Sprint 4: RSS Feed Monitor (Estado: 🔲 Próximo)
-- **Objetivo**: Monitoreo automático de blogs técnicos vía RSS con persistencia SQLite.
-- **Archivos a crear**: `rss_db.py`, `rss_manager.py`.
-- **Cambios a existentes**: nuevo tab en `app.py`, `feedparser` en `requirements.txt`.
+### Sprint 4: Foundation — Persistencia, Templates & Analytics (Estado: ✅ Completado)
+- **Objetivo**: Establecer capa de persistencia central, externalizar prompts, y agregar analytics.
+- **Cambios realizados**:
+    - [x] Crear `core/db.py` — base de datos central `knowledge.db` con tabla `ingestions`.
+    - [x] Crear `core/prompt_loader.py` — renderizador de prompts Jinja2.
+    - [x] Crear directorio `prompts/` con 6 templates (base, youtube, github, web, rss, cooking).
+    - [x] Migrar prompts hardcoded de `youtube_analyzer.py`, `github_analyzer.py`, `web_analyzer.py`, `cooking_analyzer.py` a templates.
+    - [x] Agregar deduplicación por URL en loops de procesamiento de YT, GH y Web.
+    - [x] Agregar `record_ingestion()` tras cada análisis (éxito o fallo).
+    - [x] Agregar try/except con error recording en todos los loops de procesamiento.
+    - [x] `save_note()` ahora retorna el filepath para tracking en `knowledge.db`.
+    - [x] Nuevo tab "📊 Analytics" con KPIs, gráficas, tabla de recientes, export CSV.
+    - [x] Actualizar `test_app_ui.py` con el nuevo tab Analytics.
 - **Pruebas Mínimas**:
-    - Agregar el feed de Hacker News (`https://news.ycombinator.com/rss`) y verificar que lista artículos.
-    - Procesar 2 artículos y verificar que aparecen en `seen_articles` de la DB.
-    - Procesar los mismos artículos de nuevo y verificar que no se vuelven a enviar a Gemini.
-    - Verificar que los artículos con enclosure (podcasts) se marcan como `skipped`.
+    - Procesar un video → verificar que aparece en la tabla Analytics.
+    - Procesar la misma URL → verificar que muestra "⏭️ Ya procesado".
+    - Editar un template `.md` → verificar que el output de Gemini refleja el cambio.
+    - Exportar CSV → verificar que contiene las ingestas registradas.
 
-### Sprint 5: NotebookLM Source Pack (Estado: 🔲 Planeado)
-- **Objetivo**: Generar packs de fuentes curados para importar a NotebookLM en 1 click.
-- **Archivos a crear**: `notebooklm_pack.py`.
-- **Cambios a existentes**: nuevo tab en `app.py`, `get_all_processed_urls()` en `rss_db.py`.
-- **Pruebas Mínimas**:
-    - Procesar 3 videos y 2 artículos web en la sesión, abrir el tab y verificar que aparecen las 5 fuentes.
-    - Descargar el `.txt` y verificar que tiene exactamente las URLs seleccionadas.
-    - Descargar la nota `.md` de contexto y verificar que tiene YAML válido y secciones de resumen.
-    - Verificar que fuentes duplicadas (procesadas en Web y en RSS) aparecen solo una vez.
+### Sprint 5: RSS/Chef Persistence + Hardening (Estado: 🔲 Próximo)
+- **Objetivo**: Extender persistencia a RSS y Chef, agregar control de dedup granular.
+- **Tareas**:
+    - [ ] Wire `record_ingestion()` en el tab RSS Monitor.
+    - [ ] Wire `record_ingestion()` en el tab Digital Chef.
+    - [ ] Agregar checkbox "🔄 Forzar Re-proceso" para overridear dedup cuando necesario.
+    - [ ] Agregar `tokens_estimated` tracking via metadata de respuesta de Gemini.
+    - [ ] Agregar columna `tokens_estimated` al dashboard Analytics.
 
 ### Sprint 6: Audio/Podcast Ingestion (Estado: 🔲 Planeado)
-- **Objetivo**: Transcripción local de podcasts/audio con faster-whisper, mismo pipeline que YouTube.
-- **Archivos a crear**: `audio_transcriber.py`, `podcast_analyzer.py`.
-- **Cambios a existentes**: nuevo tab en `app.py`, `faster-whisper` en `requirements.txt`.
+- **Objetivo**: Transcripción de podcasts/audio directo con Gemini (audio nativo) o faster-whisper.
+- **Archivos a crear**: `audio_transcriber.py`, `podcast_analyzer.py`, `prompts/podcast_analysis.md`.
+- **Cambios a existentes**: nuevo tab en `app.py`, dependencia de audio en `requirements.txt`.
 - **Pruebas Mínimas**:
     - Subir un `.mp3` de prueba (<5 min) y verificar transcripción correcta.
-    - Verificar que el modelo faster-whisper se carga una sola vez (singleton, no por llamada).
-    - Ingresar URL de un feed RSS de podcast y verificar que detecta el enclosure y lo descarga.
-    - Verificar que el episodio transcripto genera una nota en `60_Podcasts/` con YAML válido.
-    - Verificar que el episodio aparece en el Source Pack de NotebookLM (Sprint 5).
+    - Verificar que el episodio genera una nota con YAML válido.
+    - Verificar que aparece en Analytics.
+
+### Sprint 7: Búsqueda Semántica sobre el Vault (Estado: 🔲 Planeado)
+- **Objetivo**: RAG local con ChromaDB para consultar el conocimiento acumulado.
+- **Archivos a crear**: `core/search_engine.py`.
+- **Cambios a existentes**: nuevo tab "🔍 Vault Search" en `app.py`, `chromadb` en `requirements.txt`.
 
 ## 2. Definición de Hecho (DoD)
 Para que un sprint se considere terminado, debe cumplir:
@@ -75,3 +86,4 @@ Para que un sprint se considere terminado, debe cumplir:
 2. Las notas generadas pasan el validador de YAML (pueden ser leídas por Obsidian Properties).
 3. Se ha actualizado el archivo `docs/ADR.md` con las nuevas decisiones arquitectónicas.
 4. Los cambios de seguridad (claves, rutas) no están hardcodeados en el código fuente.
+5. Las ingestas se registran en `knowledge.db` con status correcto.

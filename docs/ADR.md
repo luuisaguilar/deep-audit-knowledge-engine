@@ -58,7 +58,7 @@
 
 ## ADR-007: SQLite local para RSS (no Supabase)
 
-- **Estado:** 🔲 Propuesto — Sprint 4
+- **Estado:** ✅ Aceptado — Sprint 4
 - **Contexto:** El RSS Monitor necesita persistencia para recordar artículos ya procesados entre sesiones. La opción alternativa era Supabase (ya planeado en Sprint 4 original).
 - **Decisión:** Usar SQLite local (`rss_feeds.db`) en lugar de Supabase para la persistencia de RSS. SQLite no requiere cuenta externa, funciona offline, y es suficiente para uso personal.
 - **Consecuencia:** Sin dependencias externas ni costos adicionales. La DB vive en el directorio del proyecto. No es apta para múltiples usuarios concurrentes (no es el caso de uso).
@@ -72,13 +72,32 @@
 - **Contexto:** Para ingestar podcasts y audio se necesita transcripción. Opciones evaluadas: OpenAI Whisper API (costo por minuto), Whisper original (lento en CPU), faster-whisper (optimizado con CTranslate2).
 - **Decisión:** Usar `faster-whisper` con modelo `base` (74MB). Local, gratuito, y procesa 1 hora de audio en ~3-5 minutos en CPU moderno. Retorna `(texto, idioma)` — mismo contrato que `get_transcript()` de YouTube.
 - **Consecuencia:** Sin costo por token de audio. Primera ejecución descarga el modelo (~74MB). En Windows requiere que Visual C++ Redistributable esté instalado.
+- **Alternativa considerada:** Gemini 2.0 Flash ahora soporta audio nativo — podría reemplazar faster-whisper eliminando la dependencia local.
 
 ---
 
 ## ADR-009: NotebookLM como destino complementario (sin API)
 
-- **Estado:** 🔲 Propuesto — Sprint 5
+- **Estado:** ✅ Aceptado — Sprint 5
 - **Contexto:** NotebookLM no tiene API pública. Se evaluó si era posible automatizar la creación de cuadernos.
 - **Decisión:** No automatizar la creación del cuaderno. En su lugar, generar un "Source Pack" (`.txt` de URLs + `.md` de contexto) que el usuario importa manualmente en NotebookLM en menos de 1 minuto.
 - **Consecuencia:** El flujo no es 100% automático, pero es el máximo posible sin API. El valor está en la curación y el enriquecimiento del contexto, no en la automatización del click.
 - **Revisión:** Si NotebookLM publica una API, este ADR debe revisarse para automatizar la creación del cuaderno via `notebooklm_pack.py`.
+
+---
+
+## ADR-010: knowledge.db como historial central de ingestas
+
+- **Estado:** ✅ Aceptado — Sprint 4
+- **Contexto:** El sistema no tenía registro persistente de qué URLs ya habían sido procesadas. Re-procesar la misma URL gastaba cuota de Gemini innecesariamente. Las estadísticas de uso eran invisibles.
+- **Decisión:** Crear `core/db.py` con una base de datos SQLite (`knowledge.db`) que registra cada ingesta con: `source_type`, `source_url` (UNIQUE), `title`, `status`, `error_message`, `vault_path`, `processed_at`, y `metadata_json`. La deduplicación se hace con `has_been_processed(url)` antes de cada análisis.
+- **Consecuencia:** Deduplicación global cross-module, historial de procesamiento queryable, y dashboard de analytics. La DB es local (misma limitación que ADR-007). No reemplaza `rss_feeds.db` — ambas coexisten con responsabilidades distintas.
+
+---
+
+## ADR-011: Prompts externalizados como templates Jinja2
+
+- **Estado:** ✅ Aceptado — Sprint 4
+- **Contexto:** Los prompts de IA estaban hardcoded como f-strings dentro de cada `_analyzer.py`. Iterar la calidad del output requería editar código Python, hacer commit, y re-deployar.
+- **Decisión:** Mover los prompts a archivos Markdown en `prompts/` usando sintaxis Jinja2 (`{{ variable }}`). Crear `core/prompt_loader.py` que renderiza templates con `jinja2.Environment`. Jinja2 ya viene bundled con Streamlit — sin nueva dependencia.
+- **Consecuencia:** Iterar la calidad de los prompts es tan simple como editar un `.md`. Los analyzers se vuelven más limpios (solo aportan variables). El `_base_system.md` se comparte via `{% include %}` para consistencia de persona.

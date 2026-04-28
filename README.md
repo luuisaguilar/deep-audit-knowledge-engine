@@ -1,56 +1,110 @@
 # 🧠 Deep Audit Knowledge Engine
 
-Ecosistema de agentes inteligentes para la ingesta de conocimiento desde YouTube, GitHub y la Web hacia Obsidian.
+Ecosistema multi-agente para la ingesta inteligente de conocimiento desde YouTube, GitHub, Web y RSS hacia Obsidian. Impulsado por **Gemini 2.0 Flash**.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B.svg)](https://streamlit.io/)
 
 ## 🚀 Inicio Rápido
 
-1.  **Entorno**: Asegúrate de tener el entorno virtual activo.
-    ```powershell
-    .\venv\Scripts\activate
-    ```
-2.  **Ejecución**:
-    ```powershell
-    streamlit run app.py
-    ```
+```bash
+# 1. Clonar y entrar al directorio
+git clone https://github.com/luuisaguilar/deep-audit-knowledge-engine.git
+cd deep-audit-knowledge-engine
 
-## 🍳 Módulos Principales
+# 2. Crear entorno virtual e instalar dependencias
+python -m venv venv
+.\venv\Scripts\activate        # Windows
+# source venv/bin/activate     # Linux/Mac
+pip install -r requirements.txt
 
-### 1. 📺 YouTube Analysis
-Auditoría técnica de videos. Extrae stack tecnológico, decisiones de arquitectura y resúmenes ejecutivos.
+# 3. Configurar credenciales
+cp .env.example .env
+# Editar .env con tus claves de Gemini y GitHub
 
-### 2. 👨‍🍳 Digital Chef (Nuevo)
-Especializado en recetas de cocina.
--   **Entrada**: Soporta links de videos individuales o canales completos.
--   **Salida**: Notas en `50_Recetas` con formato Michelin (ingredientes, porciones, paso a paso).
--   **🛒 Lista del Súper**: Capacidad de consolidar múltiples recetas en una sola lista de compras categorizada.
+# 4. Ejecutar
+streamlit run app.py
+```
 
-### 3. 💻 GitHub Deep Audit
-Analiza la estructura de repositorios, identifica archivos críticos y genera una Wiki estructurada.
+## 🏗️ Arquitectura
 
-### 4. 🌐 Web Ingestion
-Convierte artículos y blogs en notas limpias para Obsidian.
+```
+app.py                        ← UI pura (Streamlit), sin lógica de negocio
+  ↓ importa
+config.py                     ← Gemini singleton + generate_with_retry (tenacity)
+core/db.py                    ← Persistencia central (knowledge.db — SQLite)
+core/prompt_loader.py         ← Renderizador de prompts Jinja2
+  ↓ usados por
+*_analyzer.py                 ← Lógica pura, sin imports de Streamlit
+prompts/*.md                  ← Templates de prompts editables sin tocar código
+```
 
-### 5. 🧠 Obsidian Sync
-Centraliza reportes de otros agentes de base de datos (`AuctionBot`, `DexScreener`, etc.) en notas diarias o individuales.
+**Regla de oro**: ningún `_analyzer.py` importa `streamlit`. Toda la UI vive en `app.py`.
 
-## 🛠️ Configuración (Sidebar)
+## 📑 Módulos (8 Tabs)
 
--   **Ruta del Vault**: Define dónde se guardarán las notas. Por defecto: `C:\Users\luuis\Documents\Obsidian Vault\20_CONOCIMIENTO`.
--   **Auto-Save**: Si está activo, las notas se escriben directamente en el disco.
+| Tab | Módulo | Función |
+|-----|--------|---------|
+| 📺 YouTube Analysis | `youtube_analyzer.py` | Indexa canales, descarga transcripciones, genera auditorías técnicas |
+| 💻 GitHub Deep Audit | `github_analyzer.py` | Trees API recursiva, archivos ADN (hasta 12), genera Wiki técnica |
+| 🌐 Web Ingestion | `web_analyzer.py` | Scraping con BS4, análisis Zettelkasten |
+| 🍳 Digital Chef | `cooking_analyzer.py` | Recetas de cocina + lista del súper consolidada |
+| 📰 RSS Monitor | `rss_manager.py` + `rss_db.py` | Monitoreo de feeds RSS con persistencia SQLite |
+| 🧠 Obsidian Sync | `knowledge_sync.py` | Puente con agentes externos (AuctionBot, DexScreener) |
+| 📚 NotebookLM Pack | `notebooklm_pack.py` | Source Pack de URLs + nota de contexto para NotebookLM |
+| 📊 Analytics | `core/db.py` | KPIs, ingestas por tipo, timeline, historial, export CSV |
 
-## ⚠️ Notas de Estabilidad (Cuotas de Gemini)
+## 🛡️ Persistencia y Deduplicación
 
-Este sistema utiliza el **Free Tier de Gemini 1.5 Flash**. 
--   **Límites**: 15 peticiones por minuto.
--   **Manejo de Errores**: Se ha implementado una lógica de **reintento automático**. Si recibes un error de "Cuota Agotada", la app esperará 30-60 segundos y reintentará el proceso por ti.
+Todas las ingestas (YouTube, GitHub, Web) se registran en `knowledge.db`. Si un URL ya fue procesado exitosamente, se muestra **⏭️ Ya procesado** y se salta automáticamente. Esto evita re-gastar cuota de Gemini y duplicar notas.
 
-## 📁 Estructura de Carpetas en Obsidian
+## ✏️ Sistema de Prompt Templates
 
--   `10_YouTube`: Auditorías técnicas.
--   `20_GitHub`: Wikis de repositorios.
--   `30_Web`: Artículos web.
--   `50_Recetas`: Recetas y listas del súper.
--   `99_Sync`: Reportes de bots externos.
+Los prompts de IA están externalizados en archivos Markdown editables en `prompts/`:
 
----
-*Desarrollado con ❤️ por Antigravity para optimizar el cerebro digital.*
+| Template | Utilizado por |
+|----------|---------------|
+| `_base_system.md` | Prompt base compartido (Zettelkasten persona) |
+| `youtube_analysis.md` | YouTube analyzer |
+| `github_wiki.md` | GitHub analyzer |
+| `web_curation.md` | Web analyzer |
+| `rss_digest.md` | RSS analyzer |
+| `cooking_recipe.md` | Digital Chef |
+
+Para iterar la calidad de las notas generadas, solo edita los archivos `.md` — sin tocar código Python.
+
+## 📁 Carpetas en Obsidian
+
+| Carpeta | Contenido |
+|---------|-----------|
+| `10_YouTube/` | Auditorías técnicas de videos |
+| `20_GitHub/` | Wikis de repositorios |
+| `30_Web/` | Artículos web |
+| `40_NotebookLM/` | Notas de contexto del Source Pack |
+| `40_Agente_Sync/` | Reportes de bots externos |
+| `50_Recetas/` | Recetas y listas del súper |
+
+## ⚠️ Cuotas de Gemini
+
+| Servicio | Límite free tier | Manejo |
+|----------|-----------------|--------|
+| Gemini 2.0 Flash | 15 req/min, 1500 req/día | `tenacity` backoff exponencial en `config.py` |
+| GitHub API con token | 5000 req/hora | `GITHUB_TOKEN` en `.env` |
+| YouTube Transcript API | Sin límite conocido | Caché en `session_state.transcript_cache` |
+
+## 📖 Documentación
+
+| Documento | Descripción |
+|-----------|-------------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Diagrama del sistema, capas, y patrones de diseño |
+| [BACKLOG.md](docs/BACKLOG.md) | Sprints, tareas, y definición de hecho |
+| [ROADMAP.md](docs/ROADMAP.md) | Visión evolutiva del proyecto |
+| [ADR.md](docs/ADR.md) | Architecture Decision Records |
+| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | Esquemas SQLite |
+| [FLOWS.md](docs/FLOWS.md) | Diagramas de flujo de datos (Mermaid) |
+| [HANDOFF.md](docs/HANDOFF.md) | Guía de onboarding para nuevos contribuidores |
+
+## 📝 License
+
+[MIT](LICENSE)
