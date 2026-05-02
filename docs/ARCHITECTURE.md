@@ -10,29 +10,36 @@ El **Deep Audit Knowledge Engine** es un centro de operaciones de IA diseñado p
 
 ```mermaid
 graph TD
-    User([Usuario]) --> Streamlit[Streamlit Dashboard]
+    User([Usuario]) --> CF[Cloudflare Tunnel\nHTTPS]
+    CF --> Streamlit[Streamlit Dashboard]
 
-    subgraph Ingestion_Engines [Motores de Ingesta]
-        YT[YouTube Engine]
-        GH[GitHub Engine]
-        WB[Web Engine]
-        CH[Digital Chef]
-        RSS[RSS Monitor]
-        AU[Audio/Podcast 🔲]
+    subgraph Docker [Docker Container - Proxmox LXC]
+        Streamlit
+
+        subgraph Ingestion_Engines [Motores de Ingesta]
+            YT[YouTube Engine]
+            GH[GitHub Engine]
+            WB[Web Engine]
+            CH[Digital Chef]
+            RSS[RSS Monitor]
+            AU[Audio/Podcast 🔲]
+        end
+
+        subgraph Intelligence [Capa de IA]
+            CFG[config.py\ngenerate_with_retry]
+            PT[prompts/*.md\nJinja2 Templates]
+        end
+
+        subgraph LocalPersistence [Persistencia Local]
+            OBS[(Obsidian Vault\nDocker Volume)]
+            RSDB[(rss_feeds.db\nFeeds Config)]
+        end
     end
 
-    subgraph Intelligence [Capa de IA]
-        CFG[config.py\ngenerate_with_retry]
+    subgraph External [Servicios Externos]
         GEM[Gemini 2.0 Flash]
-        PT[prompts/*.md\nJinja2 Templates]
+        SUPA[(Supabase\nPostgreSQL)]
         WH[faster-whisper 🔲]
-    end
-
-    subgraph Persistence [Persistencia]
-        OBS[(Obsidian Vault)]
-        KDB[(knowledge.db\nHistorial Central)]
-        RSDB[(rss_feeds.db\nFeeds & Artículos)]
-        SYNC[Knowledge Sync\nSQLite externo]
     end
 
     subgraph Export [Exportación]
@@ -46,11 +53,10 @@ graph TD
     CFG --> GEM
     AU --> WH --> CFG
     GEM --> OBS & ZIP
-    YT & GH & WB --> KDB
+    YT & GH & WB & CH & RSS --> SUPA
     RSS --> RSDB
-    RSDB --> NLM
     OBS --> NLM
-    KDB --> CSV
+    SUPA --> CSV
 ```
 
 > 🔲 = Planeado (Sprint futuro)
@@ -91,11 +97,14 @@ graph TD
 ├── .env.example              # Plantilla de configuración
 ├── .gitignore
 ├── requirements.txt
+├── requirements-dev.txt      # Dependencias de testing (pytest, playwright)
 ├── LICENSE                   # MIT
 ├── test_app_ui.py            # Tests E2E con Playwright
 │
-├── setup_proxmox.sh          # Despliegue como servicio systemd en LXC
-├── youtube_service.service   # Configuración Systemd
+├── Dockerfile                # Contenedor Python + ffmpeg + Streamlit
+├── docker-compose.yml        # App + Cloudflare Tunnel sidecar
+├── setup_proxmox.sh          # [DEPRECADO] Despliegue systemd directo
+├── youtube_service.service   # [DEPRECADO] Configuración Systemd
 └── docs/
     ├── ARCHITECTURE.md       # Este archivo
     ├── BACKLOG.md            # Sprints y tareas
@@ -130,10 +139,15 @@ Cada engine es un módulo Python puro sin dependencia de Streamlit. Sigue la con
 Recibe prompts renderizados desde los templates Jinja2 con instrucciones de formato YAML + secciones requeridas. Siempre devuelve Markdown con frontmatter YAML válido para Obsidian. El modelo se elige por velocidad y ventana de contexto larga (necesaria para transcripciones y código).
 
 ### Capa de Persistencia
-- **`knowledge.db`** (Central): Base de datos SQLite que registra cada ingesta (URL, tipo, título, status, vault_path, timestamp). Habilita deduplicación global y analytics.
-- **`rss_feeds.db`**: SQLite para feeds RSS y artículos vistos.
-- **Obsidian Vault**: Escritura directa en sistema de archivos. Ruta configurable via sidebar. Sanitización de nombres de archivo.
+- **Supabase** (Central): Base de datos PostgreSQL que registra cada ingesta (URL, tipo, título, status, vault_path, timestamp). Habilita deduplicación global, analytics, y consultas cross-proyecto (n8n, otros bots). Reemplaza `knowledge.db` (ver ADR-012).
+- **`rss_feeds.db`**: SQLite local para feeds RSS y artículos vistos. Permanece local porque es configuración, no data operativa.
+- **Obsidian Vault**: Escritura directa en sistema de archivos (Docker volume). Ruta configurable via sidebar. Sanitización de nombres de archivo.
 - **SQLite externo**: Agentes externos (AuctionBot, DexScreener) tienen sus propias DBs que Knowledge Sync lee en modo lectura.
+
+### Capa de Infraestructura
+- **Docker**: Contenedor `python:3.11-slim` con `ffmpeg` y dependencias. Reproducible y aislado.
+- **Cloudflare Tunnel**: Sidecar `cloudflared` que expone el puerto 8501 como HTTPS público sin port forwarding ni configuración de firewall.
+- **Docker Compose**: Orquesta ambos servicios con volumes para `rss_feeds.db` y vault.
 
 ### Capa de Exportación
 - **ZIP Downloads**: Todos los tabs generan un ZIP descargable con las notas en `.md`.

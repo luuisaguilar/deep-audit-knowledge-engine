@@ -32,7 +32,7 @@ def test_tabs_existence(streamlit_app):
         page.wait_for_selector("text=Deep Audit Engine", timeout=10000)
         
         # Check tabs using regex to skip emojis
-        tab_list = ["YouTube Analysis", "GitHub Deep Audit", "Web Ingestion", "Digital Chef", "RSS Monitor", "Obsidian Sync", "NotebookLM Pack", "Analytics"]
+        tab_list = ["YouTube", "GitHub", "Web", "Chef", "RSS", "Audio", "Analytics", "Obsidian Sync", "NotebookLM"]
         for tab in tab_list:
             expect_tab = page.get_by_text(re.compile(tab, re.IGNORECASE))
             assert expect_tab.first.is_visible(), f"Tab {tab} not found"
@@ -45,8 +45,8 @@ def test_digital_chef_tab(streamlit_app):
         page = browser.new_page()
         page.goto(streamlit_app)
         
-        # Click on Digital Chef tab
-        page.get_by_text(re.compile("Digital Chef", re.IGNORECASE)).click()
+        # Click on Chef tab
+        page.get_by_text(re.compile("Chef", re.IGNORECASE)).click()
         
         # Check for subheader
         assert page.get_by_text("Chef Inteligente").is_visible()

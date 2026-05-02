@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "docgrab"
+version = "0.1.0"
+description = "AI-Ready Documentation Extraction Framework"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Antigravity", email = "antigravity@example.com" }
+]
+dependencies = [
+    "typer[all]>=0.9.0",
+    "pydantic>=2.0.0",
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "markdownify>=0.11.0",
+    "pyyaml>=6.0.0",
+    "lxml>=4.9.0",
+    "tenacity>=8.2.0",
+    "playwright>=1.42.0"
+]
+
+[project.scripts]
+docgrab = "docgrab.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"

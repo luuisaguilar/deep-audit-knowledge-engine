@@ -1,110 +1,53 @@
 # 🧠 Deep Audit Knowledge Engine
 
-Ecosistema multi-agente para la ingesta inteligente de conocimiento desde YouTube, GitHub, Web y RSS hacia Obsidian. Impulsado por **Gemini 2.0 Flash**.
+Ecosistema de Inteligencia Semántica y Auditoría Autónoma diseñado para transformar contenido multimedia (YouTube, GitHub, Web, Audio) en bases de conocimiento estructuradas para Obsidian.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B.svg)](https://streamlit.io/)
+## 🚀 Versión 2.0: Multi-User Platform (Emerald Edition)
 
-## 🚀 Inicio Rápido
+Esta versión marca la transición de una herramienta personal a una plataforma SaaS multi-usuario con aislamiento completo de datos y diseño premium.
 
-```bash
-# 1. Clonar y entrar al directorio
-git clone https://github.com/luuisaguilar/deep-audit-knowledge-engine.git
-cd deep-audit-knowledge-engine
+### 🛡️ Nueva Capa de Seguridad (Auth) y Modo Dev
+*   **Supabase Auth:** Gestión de identidades mediante JWT y sesiones seguras.
+*   **Modo Dev (Auth Bypass):** Si no se proveen llaves de Supabase, el sistema permite acceso local inmediato (User: `dev-user-local`).
+*   **Multi-tenancy:** Los registros de ingesta, analíticas y archivos están aislados por `user_id`.
+*   **Rate Limiting:** Protección activa contra ataques de fuerza bruta en Login, Registro y Recuperación.
 
-# 2. Crear entorno virtual e instalar dependencias
-python -m venv venv
-.\venv\Scripts\activate        # Windows
-# source venv/bin/activate     # Linux/Mac
-pip install -r requirements.txt
+### 🎨 Diseño Visual "Midnight Emerald"
+*   **Paleta de Colores:** Fondo `#0e1117` con acentos en **Verde Esmeralda** (`#10b981`).
+*   **Glassmorphism:** Tarjetas de métricas y contenedores con efectos de desenfoque y profundidad.
+*   **No Streamlit Header:** Interfaz inmersiva sin menús nativos visibles.
 
-# 3. Configurar credenciales
-cp .env.example .env
-# Editar .env con tus claves de Gemini y GitHub
-
-# 4. Ejecutar
-streamlit run app.py
+## 🛠️ Arquitectura de Usuario (Aislamiento)
+Las notas ahora se organizan dinámicamente para facilitar la sincronización personal:
+```text
+/vault
+  /users
+    /{user_id_1}
+      /10_YouTube
+      /20_GitHub
+      /30_Web
+    /{user_id_2}
+      ...
 ```
 
-## 🏗️ Arquitectura
+## 📥 Funcionalidades Clave
+1.  **🕷️ DocGrab Engine:** Rastreo recursivo inteligente de sitios de documentación (Sitemaps y Playwright Rendering). Permite *Descubrimiento Estructural* y clonación selectiva a Markdown.
+2.  **Tablero de Analíticas:** Estadísticas de tokens, costos y procesamientos exitosos por usuario.
+3.  **Buscador Inteligente:** Filtra ingestas pasadas vinculadas a tu cuenta.
+4.  **Exportación ZIP:** Descarga tu base de conocimientos personal en un clic desde la pestaña "Obsidian Sync".
+5.  **API Multi-user:** Backend FastAPI preparado para recibir peticiones de n8n/Telegram identificando al usuario.
 
+## 📦 Instalación y Despliegue
+Para aplicar los últimos cambios de seguridad y rutas:
+```powershell
+docker-compose up -d --build
 ```
-app.py                        ← UI pura (Streamlit), sin lógica de negocio
-  ↓ importa
-config.py                     ← Gemini singleton + generate_with_retry (tenacity)
-core/db.py                    ← Persistencia central (knowledge.db — SQLite)
-core/prompt_loader.py         ← Renderizador de prompts Jinja2
-  ↓ usados por
-*_analyzer.py                 ← Lógica pura, sin imports de Streamlit
-prompts/*.md                  ← Templates de prompts editables sin tocar código
-```
 
-**Regla de oro**: ningún `_analyzer.py` importa `streamlit`. Toda la UI vive en `app.py`.
+## 🔐 Variables de Entorno (.env)
+Asegúrate de tener configuradas las siguientes llaves:
+*   `SUPABASE_URL` / `SUPABASE_KEY`: Para la base de datos y Auth.
+*   `GEMINI_API_KEY`: Motor de inteligencia.
+*   `VAULT_PATH`: Directorio raíz de almacenamiento (Obsidian).
 
-## 📑 Módulos (8 Tabs)
-
-| Tab | Módulo | Función |
-|-----|--------|---------|
-| 📺 YouTube Analysis | `youtube_analyzer.py` | Indexa canales, descarga transcripciones, genera auditorías técnicas |
-| 💻 GitHub Deep Audit | `github_analyzer.py` | Trees API recursiva, archivos ADN (hasta 12), genera Wiki técnica |
-| 🌐 Web Ingestion | `web_analyzer.py` | Scraping con BS4, análisis Zettelkasten |
-| 🍳 Digital Chef | `cooking_analyzer.py` | Recetas de cocina + lista del súper consolidada |
-| 📰 RSS Monitor | `rss_manager.py` + `rss_db.py` | Monitoreo de feeds RSS con persistencia SQLite |
-| 🧠 Obsidian Sync | `knowledge_sync.py` | Puente con agentes externos (AuctionBot, DexScreener) |
-| 📚 NotebookLM Pack | `notebooklm_pack.py` | Source Pack de URLs + nota de contexto para NotebookLM |
-| 📊 Analytics | `core/db.py` | KPIs, ingestas por tipo, timeline, historial, export CSV |
-
-## 🛡️ Persistencia y Deduplicación
-
-Todas las ingestas (YouTube, GitHub, Web) se registran en `knowledge.db`. Si un URL ya fue procesado exitosamente, se muestra **⏭️ Ya procesado** y se salta automáticamente. Esto evita re-gastar cuota de Gemini y duplicar notas.
-
-## ✏️ Sistema de Prompt Templates
-
-Los prompts de IA están externalizados en archivos Markdown editables en `prompts/`:
-
-| Template | Utilizado por |
-|----------|---------------|
-| `_base_system.md` | Prompt base compartido (Zettelkasten persona) |
-| `youtube_analysis.md` | YouTube analyzer |
-| `github_wiki.md` | GitHub analyzer |
-| `web_curation.md` | Web analyzer |
-| `rss_digest.md` | RSS analyzer |
-| `cooking_recipe.md` | Digital Chef |
-
-Para iterar la calidad de las notas generadas, solo edita los archivos `.md` — sin tocar código Python.
-
-## 📁 Carpetas en Obsidian
-
-| Carpeta | Contenido |
-|---------|-----------|
-| `10_YouTube/` | Auditorías técnicas de videos |
-| `20_GitHub/` | Wikis de repositorios |
-| `30_Web/` | Artículos web |
-| `40_NotebookLM/` | Notas de contexto del Source Pack |
-| `40_Agente_Sync/` | Reportes de bots externos |
-| `50_Recetas/` | Recetas y listas del súper |
-
-## ⚠️ Cuotas de Gemini
-
-| Servicio | Límite free tier | Manejo |
-|----------|-----------------|--------|
-| Gemini 2.0 Flash | 15 req/min, 1500 req/día | `tenacity` backoff exponencial en `config.py` |
-| GitHub API con token | 5000 req/hora | `GITHUB_TOKEN` en `.env` |
-| YouTube Transcript API | Sin límite conocido | Caché en `session_state.transcript_cache` |
-
-## 📖 Documentación
-
-| Documento | Descripción |
-|-----------|-------------|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Diagrama del sistema, capas, y patrones de diseño |
-| [BACKLOG.md](docs/BACKLOG.md) | Sprints, tareas, y definición de hecho |
-| [ROADMAP.md](docs/ROADMAP.md) | Visión evolutiva del proyecto |
-| [ADR.md](docs/ADR.md) | Architecture Decision Records |
-| [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) | Esquemas SQLite |
-| [FLOWS.md](docs/FLOWS.md) | Diagramas de flujo de datos (Mermaid) |
-| [HANDOFF.md](docs/HANDOFF.md) | Guía de onboarding para nuevos contribuidores |
-
-## 📝 License
-
-[MIT](LICENSE)
+---
+*Desarrollado por el equipo de Advanced Agentic Coding - Google DeepMind*

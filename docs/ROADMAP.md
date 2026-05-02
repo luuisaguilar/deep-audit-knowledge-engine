@@ -22,30 +22,39 @@ Este documento marca el camino evolutivo del motor para convertirse en un sistem
   - Deduplicación automática en YT, GH, Web.
   - Error handling con status `failed` + `error_message` persistidos.
 
-## Fase 3: Nuevas Fuentes & Persistencia Completa (En curso → Sprint 5-6)
+## Fase 3: Persistencia Completa & Producción (En curso → Sprint 5-5.5)
 
-- **Sprint 5** 🔲: Extender `record_ingestion()` a RSS y Chef. Agregar "Forzar Re-proceso". Token tracking.
+- **Sprint 5** ✅: Extender `record_ingestion()` a RSS y Chef. Dedup + progress bars + error recording en todos los módulos.
+- **Sprint 5.5** 🔧: Deploy Infrastructure:
+  - Migrar `knowledge.db` (SQLite) → Supabase (PostgreSQL) para datos cross-proyecto.
+  - Containerizar con Docker (`Dockerfile` + `docker-compose.yml`).
+  - Cloudflare Tunnel sidecar para HTTPS público sin port forwarding.
+  - `rss_feeds.db` permanece SQLite local (configuración, no data operativa).
+  - Checkbox "🔄 Forzar Re-proceso" para override de dedup.
+
+## Fase 4: Nuevas Fuentes de Ingesta (Q3 2026)
+
 - **Sprint 6** 🔲: Audio/Podcast Ingestion — transcripción con Gemini audio nativo o `faster-whisper`.
+- **Sprint 8** 🔲: Token Tracking — extraer `usage_metadata` de Gemini, costos estimados en Analytics.
 
-## Fase 4: Inteligencia sobre el Vault (Q3 2026)
+## Fase 5: Inteligencia sobre el Vault (Q3-Q4 2026)
 
-- **RAG local**: ChromaDB para búsqueda semántica sobre notas generadas. Tab "🔍 Vault Search".
+- **Sprint 7** 🔲: RAG local con ChromaDB (o pgvector en Supabase) para búsqueda semántica sobre notas generadas. Tab "🔍 Vault Search".
 - **Knowledge Graph automático**: Extraer entidades y relaciones, generar `[[wikilinks]]` entre notas.
 - **Análisis Multi-Repo GitHub**: Comparar arquitecturas de dos repositorios lado a lado.
 
-## Fase 5: Automatización (Q4 2026)
+## Fase 6: Automatización (Q4 2026)
 
 - **n8n Orchestrator**: Webhook que dispara auditorías cuando un canal de YouTube sube un nuevo video.
 - **Daily Intelligence Brief**: Resumen diario de todo lo ingerido, enviado a Telegram o Slack.
 - **Ingesta programada**: Scheduler que ejecuta RSS + canales favoritos sin intervención manual.
 - **Integración DocGrab**: DocGrab crawlea documentación completa, Knowledge Engine la analiza.
 
-## Fase 6: Ecosistema Local (Q1 2027)
+## Fase 7: Ecosistema Local (Q1 2027)
 
 - **Local LLM**: Soporte para Llama 3 / Mistral vía Ollama para auditorías offline de código privado.
 - **Vision Audit**: Análisis visual de screenshots de sitios web con modelos multimodales.
 - **Voice Interface**: Comandos de voz para solicitar auditorías desde dispositivos móviles.
-- **Supabase Migration**: Migrar `knowledge.db` a Supabase + pgvector para multi-dispositivo y búsqueda semántica nativa.
 
 ---
 
@@ -62,3 +71,5 @@ app.py (tab nuevo)            — solo UI y orquestación
 
 Toda la IA pasa por `config.generate_with_retry()` — un único punto de control para cuotas, reintentos y cambios de modelo.
 Los prompts se editan sin tocar código via `core/prompt_loader.py` + `prompts/*.md`.
+La persistencia operativa vive en Supabase — consultable desde n8n, otros bots, y dashboards externos.
+

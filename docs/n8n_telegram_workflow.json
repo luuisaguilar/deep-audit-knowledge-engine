@@ -1,0 +1,218 @@
+{
+  "name": "Knowledge Engine Telegram Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"]
+      },
+      "id": "dd18f0db-1f2e-436d-96cf-dc457d383921",
+      "name": "Telegram Trigger (Message)",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 260],
+      "webhookId": "tele-bot-webhook-id"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.message.text }}",
+              "operation": "startsWith",
+              "value2": "http"
+            }
+          ]
+        }
+      },
+      "id": "76ecfbcf-61bc-4eec-8255-a010d8bbecaf",
+      "name": "Es un Link?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [440, 260]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://DIRECCION_IP_DEL_SERVER:8000/api/v1/inspect-url",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawBody": "={ \"url\": \"{{ $json.message.text }}\" }",
+        "options": {}
+      },
+      "id": "893d9695-8fc5-4f70-b747-cc50d9959dc3",
+      "name": "API Inspect URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [660, 240]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger (Message)').item.json.message.chat.id }}",
+        "text": "🔍 **URL Identificada:** {{ $json.title_preview }}\n📌 **Tipo:** {{ $json.source_type }}\n\n¿Qué te gustaría que hiciera el Agente con este enlace?",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "={{ $json.available_actions[0] }}",
+                    "additionalFields": {
+                      "callback_data": "={{ $json.available_actions[0] }}|{{ $json.url }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "31bfa2fc-3444-42b4-ad79-dfec3752e071",
+      "name": "Telegram: Enviar Botones",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [880, 240]
+    },
+    {
+      "parameters": {
+        "updates": ["callback_query"]
+      },
+      "id": "4020c7cc-cf66-4f4d-ad1f-36c5357833a6",
+      "name": "Telegram Trigger (Callback)",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 520],
+      "webhookId": "tele-bot-callback-id"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://DIRECCION_IP_DEL_SERVER:8000/api/v1/process-url",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawBody": "={\n  \"url\": \"{{ $json.callback_query.data.split('|')[1] }}\",\n  \"action\": \"{{ $json.callback_query.data.split('|')[0] }}\",\n  \"callback_url\": \"REEMPLAZAR_POR_TU_WEBHOOK_URL\"\n}",
+        "options": {}
+      },
+      "id": "90d1af8d-fcba-4d9d-92a0-4ff6be651030",
+      "name": "API Process URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [440, 520]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.callback_query.message.chat.id }}",
+        "text": "⏳ **Procesamiento encolado**\n\nEl motor de Deep Audit está trabajando en la URL. Te enviaré un mensaje cuando finalice y la nota esté en tu Vault.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "f5f5c352-78d1-44af-8547-0e6d62886f44",
+      "name": "Telegram: Aviso Encolado",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [660, 520]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "knowledge-engine-callback",
+        "options": {}
+      },
+      "id": "8dc1fc14-2c3f-4e08-bf29-efbc91e70479",
+      "name": "Webhook (Finalizado)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [220, 780],
+      "webhookId": "knowledge-engine-callback"
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID_DE_TELEGRAM_AQUI",
+        "text": "={{\n  $json.body.status === 'success' \n  ? '✅ **Análisis Finalizado con Éxito**\\n\\n📄 Documento: ' + $json.body.title + '\\n📁 Ruta: `' + $json.body.vault_path + '`'\n  : '❌ **Error de Análisis**\\n\\nEl documento ' + $json.body.url + ' ha fallado.\\nMotivo: `' + $json.body.error + '`'\n}}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "e2da1577-742f-410a-b333-d7d8e6a188ba",
+      "name": "Telegram: Nota Finalizada",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [440, 780]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger (Message)": {
+      "main": [
+        [
+          {
+            "node": "Es un Link?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Es un Link?": {
+      "main": [
+        [
+          {
+            "node": "API Inspect URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API Inspect URL": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Enviar Botones",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger (Callback)": {
+      "main": [
+        [
+          {
+            "node": "API Process URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API Process URL": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Aviso Encolado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (Finalizado)": {
+      "main": [
+        [
+          {
+            "node": "Telegram: Nota Finalizada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

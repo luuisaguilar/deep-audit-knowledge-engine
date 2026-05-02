@@ -101,3 +101,25 @@
 - **Contexto:** Los prompts de IA estaban hardcoded como f-strings dentro de cada `_analyzer.py`. Iterar la calidad del output requería editar código Python, hacer commit, y re-deployar.
 - **Decisión:** Mover los prompts a archivos Markdown en `prompts/` usando sintaxis Jinja2 (`{{ variable }}`). Crear `core/prompt_loader.py` que renderiza templates con `jinja2.Environment`. Jinja2 ya viene bundled con Streamlit — sin nueva dependencia.
 - **Consecuencia:** Iterar la calidad de los prompts es tan simple como editar un `.md`. Los analyzers se vuelven más limpios (solo aportan variables). El `_base_system.md` se comparte via `{% include %}` para consistencia de persona.
+
+---
+
+## ADR-012: Supabase para persistencia de ingestas (reemplaza SQLite)
+
+- **Estado:** ✅ Aceptado — Sprint 5.5
+- **Contexto:** `knowledge.db` era SQLite local. Funcionaba bien para desarrollo, pero presenta limitaciones para producción en Docker: (1) SQLite en Streamlit Community Cloud se pierde en cada reboot, (2) los datos quedan aislados — no consultables desde n8n, otros bots, o dashboards externos, (3) el roadmap incluye búsqueda semántica (Sprint 7) donde pgvector de Supabase podría reemplazar ChromaDB eliminando una dependencia.
+- **Decisión:** Migrar la tabla `ingestions` de `knowledge.db` (SQLite) a Supabase (PostgreSQL). Mantener la misma API pública en `core/db.py` (`record_ingestion`, `has_been_processed`, `get_ingestion_stats`, `list_recent_ingestions`). Los módulos consumidores (`app.py`, `*_analyzer.py`) no cambian ni una línea.
+- **Consecuencia:** Dependencia de red para persistencia (Supabase es un servicio externo). Ganancia: datos consultables cross-proyecto, compatible con n8n, eliminación del problema de persistencia efímera en containers. `rss_feeds.db` permanece SQLite local — es configuración de feeds, no data operativa.
+- **Alternativas descartadas:**
+    - SQLite con Docker volume: funcional para self-hosted, pero aísla los datos del resto del ecosistema (cenni-bot, LEC Orb, n8n).
+    - Turso (SQLite cloud): viable pero agrega un proveedor más; Supabase ya está en uso en otros proyectos.
+
+---
+
+## ADR-013: Docker + Cloudflare Tunnel para deploy en Proxmox
+
+- **Estado:** ✅ Aceptado — Sprint 5.5
+- **Contexto:** El deploy anterior usaba `setup_proxmox.sh` + systemd directo en el LXC. Esto funcionaba pero era frágil: sin aislamiento, sin reproducibilidad, y el script instalaba dependencias directamente en el sistema. Además, acceso remoto requería VPN o port forwarding.
+- **Decisión:** Containerizar la app con Docker y usar `docker-compose.yml` con dos servicios: (1) `app` — contenedor Python con Streamlit, (2) `cloudflared` — sidecar que crea un tunnel seguro hacia Cloudflare, exponiendo la app como HTTPS sin port forwarding. Los archivos `setup_proxmox.sh` y `youtube_service.service` quedan deprecados.
+- **Consecuencia:** Deploy reproducible con `docker-compose up -d`. Acceso HTTPS público sin configurar firewall ni port forwarding. Rebuild del contenedor no pierde datos (volumes para `rss_feeds.db` y vault). El stack completo se controla con un solo `docker-compose.yml`.
+- **Patrón reutilizado:** Mismo patrón ya implementado en otros proyectos del ecosistema (LEC Voice Platform, cenni-bot).
