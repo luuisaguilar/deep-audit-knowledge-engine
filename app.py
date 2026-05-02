@@ -19,7 +19,10 @@ from core.db import (
     login_user, signup_user, logout_user, get_current_user, reset_password_user
 )
 from config import token_tracker
+from core.search_engine import generate_rag_response
 from dotenv import load_dotenv
+import uuid
+import tempfile
 
 load_dotenv()
 
@@ -500,7 +503,7 @@ with tab2:
         if selected_web and st.button("⚡ Procesar Artículos Web", use_container_width=True):
             prog_web = st.progress(0)
             for idx, item in enumerate(selected_web):
-                if not st.session_state.force_reprocess and has_been_processed(item['url']):
+                if not st.session_state.force_reprocess and has_been_processed(item['url'], user_id=user_id):
                     st.info(f"⏭️ Ya procesado: {item['url']}")
                     prog_web.progress((idx+1)/len(selected_web))
                     continue
@@ -618,12 +621,7 @@ with tab_dg:
                 
                 st.success(f"✅ ¡Extracción de {len(selected_dg)} páginas completada!")
                 st.balloons()
-                # Registrar en la base de datos central
-                try:
-                    from api import record_ingestion
-                    record_ingestion('web_deep', dg_url, title_slug, user_id=user_id, vault_path=target_dir, status='success')
-                except Exception as e:
-                    pass
+                record_ingestion('web_deep', dg_url, title_slug, user_id=user_id, vault_path=target_dir, status='success')
             else:
                 st.warning("Selecciona al menos una página.")
 
@@ -705,7 +703,7 @@ with tab4:
             if st.button("🚀 Procesar RSS"):
                 selected_rss = [a for a in st.session_state.rss_articles if a.get('Selected')]
                 for idx, art in enumerate(selected_rss):
-                    if not st.session_state.force_reprocess and has_been_processed(art['link']): continue
+                    if not st.session_state.force_reprocess and has_been_processed(art['link'], user_id=user_id): continue
                     with st.spinner(f"Procesando: {art['title']}"):
                         try:
                             analysis = process_rss_article(art)
