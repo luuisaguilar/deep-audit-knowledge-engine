@@ -8,12 +8,17 @@ services:
     env_file:
       - .env
     volumes:
-      - ./rss_feeds.db:/app/rss_feeds.db
+      - rss_data:/app/rss_feeds.db
       - ${VAULT_PATH}:/mnt/obsidian-vault
     ports:
       - "8501:8501"
     networks:
       - knowledge-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   api:
     build: .
@@ -23,7 +28,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./rss_feeds.db:/app/rss_feeds.db
+      - rss_data:/app/rss_feeds.db
       - ${VAULT_PATH}:/mnt/obsidian-vault
     ports:
       - "8000:8000"
@@ -47,3 +52,6 @@ services:
 networks:
   knowledge-net:
     driver: bridge
+
+volumes:
+  rss_data:

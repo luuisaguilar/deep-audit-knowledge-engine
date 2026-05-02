@@ -1,0 +1,30 @@
+# Secretos — nunca dentro de la imagen
+.env
+
+# Entorno virtual local
+venv/
+.venv/
+
+# Caché y artefactos
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+
+# Git
+.git/
+.gitignore
+
+# Bases de datos locales (se montan como volumen)
+*.db
+
+# Dev / CI
+scratch/
+tests/
+*.md
+docs/
+
+# OS
+.DS_Store
+Thumbs.db

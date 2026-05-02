@@ -44,7 +44,7 @@ docker-compose logs -f cloudflared
 ### 2.2 Actualización de Código (Nuevos Sprints)
 Cuando se hace un git pull con nuevas funcionalidades o dependencias:
 ```bash
-git pull origin master
+git pull origin main
 docker-compose build app  # Reconstruir si cambiaron requirements.txt o el Dockerfile
 docker-compose up -d app  # Reiniciar el servicio con la nueva imagen
 ```

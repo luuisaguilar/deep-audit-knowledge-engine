@@ -23,6 +23,7 @@ from core.search_engine import generate_rag_response
 from dotenv import load_dotenv
 import uuid
 import tempfile
+import sys
 
 load_dotenv()
 
@@ -610,11 +611,11 @@ with tab_dg:
                 for idx, item in enumerate(selected_dg):
                     with st.spinner(f"📥 Extrayendo ({idx+1}/{len(selected_dg)}): {item['Path']}"):
                         cmd = [
-                            "C:\\Users\\luuis\\AppData\\Local\\Programs\\Python\\Python312\\python.exe", "-m", "docgrab",
+                            sys.executable, "-m", "docgrab",
                             "--url", item['URL'],
                             "--out", target_dir,
                             "--mode", "rendered",
-                            "--limit", "1" # Solo esa página
+                            "--limit", "1",
                         ]
                         subprocess.run(cmd, capture_output=True)
                     prog_dg.progress((idx+1)/len(selected_dg))
