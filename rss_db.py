@@ -1,7 +1,7 @@
 import sqlite3
 import os
 
-DB_PATH = "rss_feeds.db"
+DB_PATH = os.getenv("RSS_DB_PATH", "rss_feeds.db")
 
 def init_db():
     """Inicializa la base de datos y crea las tablas si no existen."""
