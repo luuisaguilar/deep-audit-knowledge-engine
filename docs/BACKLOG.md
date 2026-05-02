@@ -130,7 +130,7 @@
     - Procesar 5 items → verificar que los tokens se registran.
     - Dashboard muestra gráfica de consumo acumulado.
 
-### Sprint 9: Orquestación con n8n y FastAPI (Estado: 🟢 En Progreso)
+### Sprint 9: Orquestación con n8n y FastAPI (Estado: ✅ Completado)
 - **Objetivo**: Proveer al sistema de un cerebro automatizado capaz de procesar enlaces desde Telegram/n8n sin intervención manual en la UI.
 - **Tareas**:
     - [x] Crear `api.py` con FastAPI para exponer endpoints `/inspect-url` y `/process-url`.
@@ -143,6 +143,49 @@
 - **Pruebas Mínimas**:
     - Realizar un POST a `/inspect-url` y recibir las acciones.
     - Realizar un POST a `/process-url` y verificar que el webhook de n8n recibe la respuesta tras unos segundos.
+
+---
+
+### Sprint 10: Multi-user Auth + DocGrab (Estado: ✅ Completado)
+- **Objetivo**: Autenticación multi-tenant con Supabase y crawler recursivo de documentación.
+- **Cambios realizados**:
+    - [x] Supabase Auth integrado en Streamlit (login por `user_id`)
+    - [x] DocGrab engine — Playwright + Chromium para rastrear sitios de docs completos
+    - [x] Tab "DocGrab" en la UI
+    - [x] `record_ingestion()` con `user_id` en todos los tabs
+    - [x] `has_been_processed()` con `user_id` (aislamiento multi-tenant)
+
+### Sprint 11: Landing Page + Nginx + Producción (Estado: ✅ Completado)
+- **Objetivo**: UI pública premium con Next.js y unificación bajo un solo reverse proxy.
+- **Cambios realizados**:
+    - [x] Next.js 15 landing page (`deep-audit-landing` repo separado)
+    - [x] Dashboard usuario con tabs YouTube, DocGrab, Vault, Overview
+    - [x] Supabase Auth en Next.js con `@supabase/ssr` (cookies para middleware SSR)
+    - [x] Nginx reverse proxy unificando los 3 servicios bajo puerto 80
+    - [x] 5 contenedores Docker orquestados en Proxmox LXC 126
+    - [x] Cloudflare Tunnel dashboard-managed (`knowledge-engine`)
+    - [x] `knowledge.luisaguilaraguila.com` en producción
+    - [x] Variables `NEXT_PUBLIC_*` como build args en docker-compose
+    - [x] `createBrowserClient` de `@supabase/ssr` para compatibilidad con middleware
+
+---
+
+### Sprint 12: Daily Briefings + Sync + CI/CD (Estado: 📋 Pendiente)
+- **Objetivo**: Automatización matutina, sincronización del vault y deploy automático.
+- **Tareas**:
+    - [ ] Daily Briefing — workflow n8n que envía reporte matutino por Telegram con ingestas del día anterior
+    - [ ] Deep Sync — Syncthing en Docker para sincronizar vault entre máquinas
+    - [ ] User Profile tab — avatar, preferencias de LLM
+    - [ ] Auto-deploy CI/CD — GitHub Actions → SSH → git pull + rebuild en LXC 126
+    - [ ] Forgot password page (`/auth/reset`) — el endpoint ya está, falta la página
+
+### Sprint 13: Cross-Source Search + Ollama + Auto-Wiki (Estado: 📋 Pendiente)
+- **Objetivo**: Búsqueda semántica cross-source y LLM local.
+- **Tareas**:
+    - [ ] Cross-Source semantic search (búsqueda unificada YouTube + GitHub + Web)
+    - [ ] Ollama integration — LLM local para documentos confidenciales
+    - [ ] Auto-Wiki MOC — generación automática de Maps of Content en Obsidian
+    - [ ] Loki — logs de Docker en Grafana (LXC 115)
 
 ---
 
