@@ -19,7 +19,7 @@ from core.db import (
     login_user, signup_user, logout_user, get_current_user, reset_password_user
 )
 from config import token_tracker
-from core.search_engine import generate_rag_response
+from core.search_engine import generate_rag_response, index_document
 from dotenv import load_dotenv
 import uuid
 import tempfile
@@ -403,7 +403,7 @@ with tab0:
                             p_tok, c_tok = token_tracker.get_and_reset()
                             record_ingestion('youtube', source_url, vid['title'], user_id=user_id, vault_path=str(vault_file) if vault_file else None, prompt_tokens=p_tok, completion_tokens=c_tok)
                             if vault_file:
-                                index_document(str(vault_file), vid['title'], analysis)
+                                index_document(str(vault_file), vid['title'], analysis, user_id=user_id)
                             st.expander(f"✅ {vid['title']}").markdown(analysis)
                         else:
                             p_tok, c_tok = token_tracker.get_and_reset()
@@ -470,7 +470,7 @@ with tab1:
                             p_tok, c_tok = token_tracker.get_and_reset()
                             record_ingestion('github', source_url, repo['name'], user_id=user_id, vault_path=str(vault_file) if vault_file else None, prompt_tokens=p_tok, completion_tokens=c_tok)
                             if vault_file:
-                                index_document(str(vault_file), repo['name'], analysis_gh)
+                                index_document(str(vault_file), repo['name'], analysis_gh, user_id=user_id)
                             st.expander(f"✅ {repo['name']} Wiki").markdown(analysis_gh)
                         else:
                             p_tok, c_tok = token_tracker.get_and_reset()
@@ -519,7 +519,7 @@ with tab2:
                             p_tok, c_tok = token_tracker.get_and_reset()
                             record_ingestion('web', item['url'], title, user_id=user_id, vault_path=str(vault_file) if vault_file else None, prompt_tokens=p_tok, completion_tokens=c_tok)
                             if vault_file:
-                                index_document(str(vault_file), title, analysis)
+                                index_document(str(vault_file), title, analysis, user_id=user_id)
                             st.expander(f"✅ {title}").markdown(analysis)
                     except Exception as e:
                         p_tok, c_tok = token_tracker.get_and_reset()
@@ -665,7 +665,7 @@ with tab3:
                             p_tok, c_tok = token_tracker.get_and_reset()
                             record_ingestion('chef', source_url, vid['title'], user_id=user_id, vault_path=str(vault_file) if vault_file else None, prompt_tokens=p_tok, completion_tokens=c_tok)
                             if vault_file:
-                                index_document(str(vault_file), vid['title'], recipe)
+                                index_document(str(vault_file), vid['title'], recipe, user_id=user_id)
                             st.expander(f"✅ {vid['title']}").markdown(recipe)
                     except Exception as e:
                         p_tok, c_tok = token_tracker.get_and_reset()
@@ -714,7 +714,7 @@ with tab4:
                                 p_tok, c_tok = token_tracker.get_and_reset()
                                 record_ingestion('rss', art['link'], art['title'], user_id=user_id, vault_path=str(vault_file) if vault_file else None, prompt_tokens=p_tok, completion_tokens=c_tok)
                                 if vault_file:
-                                    index_document(str(vault_file), art['title'], analysis)
+                                    index_document(str(vault_file), art['title'], analysis, user_id=user_id)
                                 st.expander(f"✅ {art['title']}").markdown(analysis)
                         except Exception as e:
                             p_tok, c_tok = token_tracker.get_and_reset()
@@ -755,7 +755,7 @@ with tab5:
                         p_tok, c_tok = token_tracker.get_and_reset()
                         record_ingestion("audio", f"local_{uploaded_file.name}", audio_title, user_id=user_id, vault_path=filepath, status="success", prompt_tokens=p_tok, completion_tokens=c_tok)
                         if filepath:
-                            index_document(str(filepath), audio_title, result_md)
+                            index_document(str(filepath), audio_title, result_md, user_id=user_id)
                         with st.expander("📄 Ver Análisis Generado", expanded=True):
                             st.markdown(result_md)
                 except Exception as e:
@@ -775,7 +775,7 @@ with tab6:
     if st.button("🪄 Preguntar al Engine"):
         if search_query:
             with st.spinner("Buscando en la base vectorial y formulando respuesta..."):
-                rag_answer = generate_rag_response(search_query)
+                rag_answer = generate_rag_response(search_query, user_id=user_id)
                 st.markdown("### Respuesta del Agente")
                 st.markdown(rag_answer)
         else:

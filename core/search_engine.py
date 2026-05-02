@@ -29,56 +29,58 @@ def chunk_text(text: str, max_chunk_size: int = 1500) -> list[str]:
         
     return chunks
 
-def index_document(source_path: str, title: str, content: str):
+def index_document(source_path: str, title: str, content: str, user_id: str = None):
     """Genera embeddings para el documento y lo guarda en Supabase."""
     chunks = chunk_text(content)
     records_to_insert = []
-    
+
     for chunk in chunks:
         if not chunk.strip():
             continue
-        
+
         vector = generate_embedding(chunk)
         if not vector:
             continue
-            
+
         records_to_insert.append({
+            "user_id": user_id,
             "source_path": source_path,
             "source_title": title,
             "content": chunk,
             "embedding": vector
         })
-        
+
     if records_to_insert:
         try:
             supabase.table("document_chunks").insert(records_to_insert).execute()
         except Exception as e:
             print(f"Error indexando en Supabase: {e}")
 
-def search_knowledge_base(query: str, match_threshold: float = 0.5, match_count: int = 5) -> list[dict]:
+def search_knowledge_base(query: str, match_threshold: float = 0.5, match_count: int = 5, user_id: str = None) -> list[dict]:
     """Busca en el Vault (vía Supabase) los fragmentos más relevantes."""
     query_vector = generate_embedding(query)
     if not query_vector:
         return []
-        
+
     try:
         response = supabase.rpc(
-            "match_document_chunks", 
+            "match_document_chunks",
             {
                 "query_embedding": query_vector,
                 "match_threshold": match_threshold,
-                "match_count": match_count
+                "match_count": match_count,
+                "filter_user_id": user_id
             }
         ).execute()
-        
+
         return response.data
     except Exception as e:
         print(f"Error buscando en Supabase: {e}")
         return []
 
-def generate_rag_response(query: str) -> str:
+def generate_rag_response(query: str, user_id: str = None) -> str:
     """Busca contexto y pide a Gemini que responda basándose en los resultados."""
-    results = search_knowledge_base(query)
+    results = search_knowledge_base(query, user_id=user_id)
     
     if not results:
         return "No encontré información relevante en el Vault sobre tu pregunta."
