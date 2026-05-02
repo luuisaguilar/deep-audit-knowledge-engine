@@ -217,6 +217,28 @@ def background_process(req: ProcessRequest):
             "error": str(e)
         }))
 
+class AnalyzeRequest(BaseModel):
+    url: str
+    user_id: Optional[str] = "web-user"
+
+@app.post("/analyze/youtube")
+async def analyze_youtube(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+    """Endpoint consumido por la landing page Next.js — analiza un video de YouTube."""
+    process_req = ProcessRequest(url=req.url, action="Deep Audit (Dev)", user_id=req.user_id)
+    background_tasks.add_task(background_process, process_req)
+    return {"message": "Análisis de YouTube encolado.", "url": req.url}
+
+@app.post("/analyze/docgrab")
+async def analyze_docgrab(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+    """Endpoint consumido por la landing page Next.js — clona un sitio de documentación."""
+    process_req = ProcessRequest(url=req.url, action="Extraer Sitio Completo (DocGrab)", user_id=req.user_id)
+    background_tasks.add_task(background_process, process_req)
+    return {"message": "DocGrab encolado.", "url": req.url}
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 @app.post("/api/v1/process-url")
 async def process_url(req: ProcessRequest, background_tasks: BackgroundTasks):
     """

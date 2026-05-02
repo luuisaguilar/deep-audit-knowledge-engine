@@ -25,6 +25,9 @@ tests/
 *.md
 docs/
 
+# Nginx (no va en la imagen Python)
+nginx.conf
+
 # OS
 .DS_Store
 Thumbs.db
