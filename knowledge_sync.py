@@ -43,7 +43,7 @@ def get_dexscreener_summary():
         return f"Error leyendo DexScreener: {e}"
 
 
-def sync_all_to_obsidian(vault_path: str = DEFAULT_VAULT_PATH, consolidated: bool = True) -> str:
+def sync_all_to_obsidian(vault_path: str = DEFAULT_VAULT_PATH, consolidated: bool = True) -> dict:
     """Sincroniza los datos de los agentes al vault de Obsidian.
 
     Args:
@@ -59,27 +59,45 @@ def sync_all_to_obsidian(vault_path: str = DEFAULT_VAULT_PATH, consolidated: boo
     sync_dir = os.path.join(vault_path, "40_Agente_Sync")
     os.makedirs(sync_dir, exist_ok=True)
 
+    stats = {"synced": 0, "new": 0, "updated": 0}
+
     if consolidated:
         content = f"---\ntipo: reporte_agentes\nfecha_sincro: {now}\n---\n\n# 🧠 Reporte Consolidado de Agentes\n\n"
         for agent, data in results.items():
             content += f"## 🤖 {agent}\n\n{data}\n\n"
 
         filename = f"Reporte_Agentes_{datetime.now().strftime('%Y%m%d')}.md"
-        with open(os.path.join(sync_dir, filename), "w", encoding="utf-8") as f:
+        filepath = os.path.join(sync_dir, filename)
+        
+        if os.path.exists(filepath):
+            stats["updated"] += 1
+        else:
+            stats["new"] += 1
+            
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
-        return f"Reporte consolidado guardado en '{filename}'"
+        
+        stats["synced"] = stats["new"] + stats["updated"]
+        return stats
     else:
-        saved_files = []
         for agent, data in results.items():
             content = (
                 f"---\ntipo: reporte_agente\nagente: {agent}\nfecha_sincro: {now}\n---\n\n"
                 f"# 🤖 {agent}\n\n{data}\n"
             )
             filename = f"{agent}_{datetime.now().strftime('%Y%m%d')}.md"
-            with open(os.path.join(sync_dir, filename), "w", encoding="utf-8") as f:
+            filepath = os.path.join(sync_dir, filename)
+            
+            if os.path.exists(filepath):
+                stats["updated"] += 1
+            else:
+                stats["new"] += 1
+                
+            with open(filepath, "w", encoding="utf-8") as f:
                 f.write(content)
-            saved_files.append(filename)
-        return f"Notas individuales guardadas: {', '.join(saved_files)}"
+        
+        stats["synced"] = stats["new"] + stats["updated"]
+        return stats
 
 
 if __name__ == "__main__":

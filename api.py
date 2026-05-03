@@ -1,15 +1,21 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 import httpx
 import re
+import tempfile
 from typing import Optional, List
 from youtube_analyzer import get_video_list, get_transcript, analyze_video_content
 from github_analyzer import get_user_repos, get_repo_structure, identify_critical_files, fetch_file_content, analyze_repository_wiki
 from web_analyzer import fetch_web_content, analyze_web_content
 from cooking_analyzer import analyze_cooking_video
+from audio_analyzer import analyze_audio
+from rss_db import get_feeds, add_feed, remove_feed
+from rss_manager import fetch_new_articles, process_rss_article
+from notebooklm_pack import generate_source_list, generate_context_markdown
+from knowledge_sync import sync_all_to_obsidian
 from core.db import record_ingestion, has_been_processed
+from core.search_engine import index_document, generate_rag_response, search_knowledge_base
 from config import token_tracker
-from core.search_engine import index_document
 import os
 from dotenv import load_dotenv
 
@@ -32,7 +38,8 @@ class ProcessRequest(BaseModel):
     action: str
     user_id: Optional[str] = "admin"
     force_reprocess: bool = False
-    callback_url: Optional[str] = None  # Webhook de n8n para avisar cuando termine
+    depth: Optional[str] = "20"  # Nuevo campo para DocGrab
+    callback_url: Optional[str] = None
 
 def identify_url_type(url: str) -> str:
     if "youtube.com" in url or "youtu.be" in url:
@@ -92,7 +99,7 @@ def background_process(req: ProcessRequest):
     source_type = identify_url_type(req.url)
     vault_path_env = os.getenv("VAULT_PATH", "/mnt/obsidian-vault")
     
-    # Check deduplication (ahora filtrado por usuario)
+    # Check deduplication
     if not req.force_reprocess and has_been_processed(req.url, user_id=req.user_id):
         print(f"Skipping already processed URL: {req.url} for user {req.user_id}")
         import asyncio
@@ -111,7 +118,6 @@ def background_process(req: ProcessRequest):
         clean_base = "".join([c if c.isalnum() or c in (' ', '_', '-') else "_" for c in basename])
         clean_name = f"{clean_base}{ext}"
         
-        # Ruta dinámica por usuario
         target_dir = os.path.join(vault_path_env, "users", u_id, subfolder)
         os.makedirs(target_dir, exist_ok=True)
         filepath = os.path.join(target_dir, clean_name)
@@ -149,10 +155,9 @@ def background_process(req: ProcessRequest):
             title = repo_name
             db_type = "github"
             
-            structure = get_repo_structure(owner, repo_name, "main") # simplificado
+            structure = get_repo_structure(owner, repo_name, "main")
             crit_files = identify_critical_files(structure)
             files_data = {f: fetch_file_content(owner, repo_name, f) for f in crit_files if fetch_file_content(owner, repo_name, f)}
-            # Mock del objeto repo para compatibilidad
             repo_mock = {"name": repo_name, "owner": {"login": owner}, "description": "", "html_url": req.url}
             result_md = analyze_repository_wiki(owner, repo_name, repo_mock, structure, files_data)
             
@@ -167,12 +172,15 @@ def background_process(req: ProcessRequest):
                 target_dir = os.path.join(vault_path_env, "users", req.user_id, "40_Docs", title.replace(" ", "_"))
                 os.makedirs(target_dir, exist_ok=True)
                 
+                # Usar el parámetro depth (limit en docgrab)
+                limit = req.depth if req.depth else "20"
+                
                 cmd = [
                     "python", "-m", "docgrab",
                     "--url", req.url,
                     "--out", target_dir,
                     "--mode", "rendered",
-                    "--limit", "20"
+                    "--limit", limit
                 ]
                 
                 process = subprocess.run(cmd, capture_output=True, text=True)
@@ -181,7 +189,7 @@ def background_process(req: ProcessRequest):
                     result_md = "⚠️ ERROR"
                 else:
                     saved_path = target_dir
-                    result_md = "DocGrab finalizó exitosamente. Documentación guardada en subcarpetas."
+                    result_md = f"DocGrab finalizó exitosamente (límite {limit})."
             else:
                 web_data = fetch_web_content(req.url)
                 title = web_data.get("title", "Web_Note")
@@ -220,20 +228,186 @@ def background_process(req: ProcessRequest):
 class AnalyzeRequest(BaseModel):
     url: str
     user_id: Optional[str] = "web-user"
+    depth: Optional[str] = "20"
 
 @app.post("/analyze/youtube")
 async def analyze_youtube(req: AnalyzeRequest, background_tasks: BackgroundTasks):
-    """Endpoint consumido por la landing page Next.js — analiza un video de YouTube."""
     process_req = ProcessRequest(url=req.url, action="Deep Audit (Dev)", user_id=req.user_id)
     background_tasks.add_task(background_process, process_req)
     return {"message": "Análisis de YouTube encolado.", "url": req.url}
 
 @app.post("/analyze/docgrab")
 async def analyze_docgrab(req: AnalyzeRequest, background_tasks: BackgroundTasks):
-    """Endpoint consumido por la landing page Next.js — clona un sitio de documentación."""
-    process_req = ProcessRequest(url=req.url, action="Extraer Sitio Completo (DocGrab)", user_id=req.user_id)
+    process_req = ProcessRequest(url=req.url, action="Extraer Sitio Completo (DocGrab)", user_id=req.user_id, depth=req.depth)
     background_tasks.add_task(background_process, process_req)
-    return {"message": "DocGrab encolado.", "url": req.url}
+    return {"message": "DocGrab encolado.", "url": req.url, "depth": req.depth}
+
+@app.post("/analyze/github")
+async def analyze_github(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+    """Genera wiki técnica de un repositorio de GitHub."""
+    process_req = ProcessRequest(url=req.url, action="Generar Wiki Técnica", user_id=req.user_id)
+    background_tasks.add_task(background_process, process_req)
+    return {"message": "Análisis de GitHub encolado.", "url": req.url}
+
+@app.post("/analyze/web")
+async def analyze_web(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+    """Extrae y analiza el contenido de un artículo web."""
+    process_req = ProcessRequest(url=req.url, action="Resumir Artículo", user_id=req.user_id)
+    background_tasks.add_task(background_process, process_req)
+    return {"message": "Artículo web encolado.", "url": req.url}
+
+@app.post("/analyze/chef")
+async def analyze_chef(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+    """Extrae recetas de videos de cocina en YouTube."""
+    process_req = ProcessRequest(url=req.url, action="Extraer Receta (Chef)", user_id=req.user_id)
+    background_tasks.add_task(background_process, process_req)
+    return {"message": "Extracción de receta encolada.", "url": req.url}
+
+@app.post("/analyze/audio")
+async def analyze_audio_endpoint(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    user_id: str = Form(default="web-user")
+):
+    """Sube un archivo de audio para transcripción y análisis."""
+    vault_path_env = os.getenv("VAULT_PATH", "/mnt/obsidian-vault")
+
+    contents = await file.read()
+    suffix = os.path.splitext(file.filename or "audio.mp3")[1] or ".mp3"
+
+    def _process_audio():
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(contents)
+            tmp_path = tmp.name
+        try:
+            result_md = analyze_audio(tmp_path)
+            audio_title = os.path.splitext(file.filename or "audio")[0]
+            target_dir = os.path.join(vault_path_env, "users", user_id, "60_Audio")
+            os.makedirs(target_dir, exist_ok=True)
+            clean_name = "".join([c if c.isalnum() or c in (' ', '_', '-') else "_" for c in audio_title])
+            filepath = os.path.join(target_dir, f"{clean_name}.md")
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(result_md)
+            index_document(filepath, audio_title, result_md, user_id=user_id)
+            p_tok, c_tok = token_tracker.get_and_reset()
+            record_ingestion("audio", tmp_path, audio_title, user_id=user_id, vault_path=filepath, status="success", prompt_tokens=p_tok, completion_tokens=c_tok)
+        except Exception as e:
+            p_tok, c_tok = token_tracker.get_and_reset()
+            record_ingestion("audio", file.filename or "audio", file.filename or "audio", user_id=user_id, status="failed", error_message=str(e), prompt_tokens=p_tok, completion_tokens=c_tok)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+    background_tasks.add_task(_process_audio)
+    return {"message": f"Audio '{file.filename}' encolado para análisis."}
+
+class RagRequest(BaseModel):
+    query: str
+    user_id: Optional[str] = "web-user"
+
+@app.get("/search/knowledge-base")
+async def search_kb_endpoint(query: str, limit: int = 5, user_id: str = "web-user"):
+    """Búsqueda rápida (Híbrida + RRF) para el dropdown del topbar."""
+    results = search_knowledge_base(query, match_count=limit, user_id=user_id)
+    return results
+
+@app.post("/search/rag")
+async def search_rag(req: RagRequest):
+    """Búsqueda semántica RAG sobre el Vault del usuario."""
+    answer = generate_rag_response(req.query, user_id=req.user_id)
+    sources = []
+    # Extraer fuentes del formato de generate_rag_response si incluye la sección de fuentes
+    if "### 🔗 Fuentes Consultadas" in answer:
+        parts = answer.split("### 🔗 Fuentes Consultadas")
+        answer = parts[0].strip()
+        for line in parts[1].strip().split("\n"):
+            if "`" in line:
+                src = line.split("`")[1]
+                sources.append(src)
+    return {"answer": answer, "sources": sources}
+
+class RssFeedRequest(BaseModel):
+    url: str
+    user_id: Optional[str] = "web-user"
+
+@app.post("/rss/add-feed")
+async def rss_add_feed(req: RssFeedRequest):
+    """Agrega un feed RSS a la base de datos."""
+    try:
+        add_feed(req.url)
+        return {"message": "Feed agregado correctamente.", "url": req.url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/rss/fetch-all")
+async def rss_fetch_all(background_tasks: BackgroundTasks):
+    """Procesa todos los feeds RSS registrados."""
+    background_tasks.add_task(fetch_new_articles)
+    return {"message": "Procesamiento de feeds RSS encolado."}
+
+class NotebookLMRequest(BaseModel):
+    topic: str
+    user_id: Optional[str] = "web-user"
+
+@app.post("/analyze/notebooklm")
+async def analyze_notebooklm(req: NotebookLMRequest):
+    """Genera un pack de fuentes para NotebookLM sobre un tema."""
+    try:
+        source_list = generate_source_list(req.topic)
+        context_md = generate_context_markdown(req.topic)
+        vault_path_env = os.getenv("VAULT_PATH", "/mnt/obsidian-vault")
+        target_dir = os.path.join(vault_path_env, "users", req.user_id, "70_NotebookLM")
+        os.makedirs(target_dir, exist_ok=True)
+        clean_topic = "".join([c if c.isalnum() or c in (' ', '_', '-') else "_" for c in req.topic])
+        with open(os.path.join(target_dir, f"sources_{clean_topic}.md"), "w", encoding="utf-8") as f:
+            f.write(source_list)
+        with open(os.path.join(target_dir, f"context_{clean_topic}.md"), "w", encoding="utf-8") as f:
+            f.write(context_md)
+        return {"message": "Pack generado.", "topic": req.topic}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/sync/obsidian")
+async def sync_obsidian():
+    """Sincroniza todas las notas con Obsidian."""
+    try:
+        stats = sync_all_to_obsidian()
+        return {"message": "Sincronización completada.", "stats": stats}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/vault/deduplicate")
+async def vault_deduplicate(user_id: str = "web-user"):
+    """
+    Escanea el Vault del usuario y elimina fragmentos semánticamente redundantes (>0.90 Jaccard).
+    Útil para "limpiar" el sistema de información repetida.
+    """
+    try:
+        from core.search_engine import dedup_results
+        # Obtener todos los chunks del usuario
+        response = supabase.table("document_chunks").select("*").eq("user_id", user_id).execute()
+        all_chunks = response.data
+        if not all_chunks:
+            return {"message": "No hay fragmentos para procesar."}
+            
+        unique_chunks = dedup_results(all_chunks, threshold=0.90)
+        
+        to_delete = [c['id'] for c in all_chunks if c not in unique_chunks]
+        
+        if to_delete:
+            # Supabase delete por lista de IDs
+            supabase.table("document_chunks").delete().in_("id", to_delete).execute()
+            
+        return {
+            "total_before": len(all_chunks),
+            "total_after": len(unique_chunks),
+            "deleted": len(to_delete),
+            "message": f"Se eliminaron {len(to_delete)} fragmentos redundantes."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health")
 async def health():
