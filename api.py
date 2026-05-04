@@ -332,12 +332,32 @@ class RssFeedRequest(BaseModel):
     url: str
     user_id: Optional[str] = "web-user"
 
+class RemoveFeedRequest(BaseModel):
+    id: int
+    user_id: Optional[str] = "web-user"
+
+@app.get("/rss/feeds")
+async def rss_get_feeds(user_id: str = "web-user"):
+    """Lista los feeds RSS del usuario."""
+    rows = get_feeds(user_id=user_id)
+    return [{"id": r[0], "url": r[1], "name": r[2], "categoria": r[3]} for r in rows]
+
 @app.post("/rss/add-feed")
 async def rss_add_feed(req: RssFeedRequest):
     """Agrega un feed RSS a la base de datos."""
     try:
-        add_feed(req.url)
+        nombre = req.url.split("/")[2] if "/" in req.url else req.url
+        add_feed(req.url, nombre=nombre, user_id=req.user_id or "web-user")
         return {"message": "Feed agregado correctamente.", "url": req.url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/rss/remove-feed")
+async def rss_remove_feed(req: RemoveFeedRequest):
+    """Elimina un feed RSS del usuario."""
+    try:
+        remove_feed(req.id, user_id=req.user_id or "web-user")
+        return {"message": "Feed eliminado correctamente."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -374,9 +394,9 @@ class SyncRequest(BaseModel):
 
 @app.post("/sync/obsidian")
 async def sync_obsidian(req: SyncRequest = SyncRequest()):
-    """Sincroniza todas las notas con Obsidian."""
+    """Sincroniza las notas del usuario con Obsidian."""
     try:
-        stats = sync_all_to_obsidian()
+        stats = sync_all_to_obsidian(user_id=req.user_id)
         return {"message": "Sincronización completada.", "stats": stats}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

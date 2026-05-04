@@ -43,12 +43,13 @@ def get_dexscreener_summary():
         return f"Error leyendo DexScreener: {e}"
 
 
-def sync_all_to_obsidian(vault_path: str = DEFAULT_VAULT_PATH, consolidated: bool = True) -> dict:
+def sync_all_to_obsidian(vault_path: str = DEFAULT_VAULT_PATH, consolidated: bool = True, user_id: str = None) -> dict:
     """Sincroniza los datos de los agentes al vault de Obsidian.
 
     Args:
         vault_path: Ruta al vault. Por defecto usa DEFAULT_VAULT_PATH.
         consolidated: True → una sola nota con todo. False → una nota por agente.
+        user_id: Si se provee, escribe en users/<user_id>/40_Agente_Sync/
     """
     results = {
         'AuctionBot': get_auctionbot_summary(),
@@ -56,7 +57,8 @@ def sync_all_to_obsidian(vault_path: str = DEFAULT_VAULT_PATH, consolidated: boo
     }
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    sync_dir = os.path.join(vault_path, "40_Agente_Sync")
+    base = os.path.join(vault_path, "users", user_id) if user_id else vault_path
+    sync_dir = os.path.join(base, "40_Agente_Sync")
     os.makedirs(sync_dir, exist_ok=True)
 
     stats = {"synced": 0, "new": 0, "updated": 0}
