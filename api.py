@@ -369,8 +369,11 @@ async def analyze_notebooklm(req: NotebookLMRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class SyncRequest(BaseModel):
+    user_id: Optional[str] = None
+
 @app.post("/sync/obsidian")
-async def sync_obsidian():
+async def sync_obsidian(req: SyncRequest = SyncRequest()):
     """Sincroniza todas las notas con Obsidian."""
     try:
         stats = sync_all_to_obsidian()
@@ -378,8 +381,12 @@ async def sync_obsidian():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class DeduplicateRequest(BaseModel):
+    user_id: Optional[str] = "web-user"
+
 @app.post("/vault/deduplicate")
-async def vault_deduplicate(user_id: str = "web-user"):
+async def vault_deduplicate(req: DeduplicateRequest):
+    user_id = req.user_id or "web-user"
     """
     Escanea el Vault del usuario y elimina fragmentos semánticamente redundantes (>0.90 Jaccard).
     Útil para "limpiar" el sistema de información repetida.
