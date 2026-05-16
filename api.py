@@ -1,4 +1,5 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form, Request
+from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form, Request, Depends, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -28,6 +29,23 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Deep Audit Knowledge Engine API", version="1.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Supabase admin client — used for JWT verification and DB ops
+from supabase import create_client as _create_supabase
+_supabase_url = os.getenv("SUPABASE_URL")
+_supabase_key = os.getenv("SUPABASE_KEY")
+supabase_admin = _create_supabase(_supabase_url, _supabase_key) if _supabase_url and _supabase_key else None
+
+_bearer = HTTPBearer()
+
+async def require_user(credentials: HTTPAuthorizationCredentials = Security(_bearer)) -> str:
+    if supabase_admin is None:
+        raise HTTPException(status_code=503, detail="Auth service not configured")
+    try:
+        result = supabase_admin.auth.get_user(credentials.credentials)
+        return result.user.id
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token invalido o expirado")
 
 class InspectRequest(BaseModel):
     url: str
@@ -59,7 +77,7 @@ def identify_url_type(url: str) -> str:
 
 @app.post("/api/v1/inspect-url", response_model=InspectResponse)
 @limiter.limit("10/minute")
-async def inspect_url(request: Request, req: InspectRequest):
+async def inspect_url(request: Request, req: InspectRequest, user_id: str = Depends(require_user)):
     """
     Recibe una URL cruda (ej. desde Telegram/n8n) y devuelve qué tipo de contenido es
     y qué opciones de procesamiento tiene el usuario.
@@ -239,39 +257,39 @@ class AnalyzeRequest(BaseModel):
 
 @app.post("/analyze/youtube")
 @limiter.limit("5/minute")
-async def analyze_youtube(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks):
-    process_req = ProcessRequest(url=req.url, action="Deep Audit (Dev)", user_id=req.user_id)
+async def analyze_youtube(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks, user_id: str = Depends(require_user)):
+    process_req = ProcessRequest(url=req.url, action="Deep Audit (Dev)", user_id=user_id)
     background_tasks.add_task(background_process, process_req)
     return {"message": "Análisis de YouTube encolado.", "url": req.url}
 
 @app.post("/analyze/docgrab")
 @limiter.limit("5/minute")
-async def analyze_docgrab(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks):
-    process_req = ProcessRequest(url=req.url, action="Extraer Sitio Completo (DocGrab)", user_id=req.user_id, depth=req.depth)
+async def analyze_docgrab(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks, user_id: str = Depends(require_user)):
+    process_req = ProcessRequest(url=req.url, action="Extraer Sitio Completo (DocGrab)", user_id=user_id, depth=req.depth)
     background_tasks.add_task(background_process, process_req)
     return {"message": "DocGrab encolado.", "url": req.url, "depth": req.depth}
 
 @app.post("/analyze/github")
 @limiter.limit("5/minute")
-async def analyze_github(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks):
+async def analyze_github(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks, user_id: str = Depends(require_user)):
     """Genera wiki técnica de un repositorio de GitHub."""
-    process_req = ProcessRequest(url=req.url, action="Generar Wiki Técnica", user_id=req.user_id)
+    process_req = ProcessRequest(url=req.url, action="Generar Wiki Técnica", user_id=user_id)
     background_tasks.add_task(background_process, process_req)
     return {"message": "Análisis de GitHub encolado.", "url": req.url}
 
 @app.post("/analyze/web")
 @limiter.limit("5/minute")
-async def analyze_web(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks):
+async def analyze_web(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks, user_id: str = Depends(require_user)):
     """Extrae y analiza el contenido de un artículo web."""
-    process_req = ProcessRequest(url=req.url, action="Resumir Artículo", user_id=req.user_id)
+    process_req = ProcessRequest(url=req.url, action="Resumir Artículo", user_id=user_id)
     background_tasks.add_task(background_process, process_req)
     return {"message": "Artículo web encolado.", "url": req.url}
 
 @app.post("/analyze/chef")
 @limiter.limit("5/minute")
-async def analyze_chef(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks):
+async def analyze_chef(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks, user_id: str = Depends(require_user)):
     """Extrae recetas de videos de cocina en YouTube."""
-    process_req = ProcessRequest(url=req.url, action="Extraer Receta (Chef)", user_id=req.user_id)
+    process_req = ProcessRequest(url=req.url, action="Extraer Receta (Chef)", user_id=user_id)
     background_tasks.add_task(background_process, process_req)
     return {"message": "Extracción de receta encolada.", "url": req.url}
 
@@ -281,7 +299,7 @@ async def analyze_audio_endpoint(
     request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    user_id: str = Form(default="web-user")
+    user_id: str = Depends(require_user),
 ):
     """Sube un archivo de audio para transcripción y análisis."""
     vault_path_env = os.getenv("VAULT_PATH", "/mnt/obsidian-vault")
@@ -323,16 +341,16 @@ class RagRequest(BaseModel):
 
 @app.get("/search/knowledge-base")
 @limiter.limit("10/minute")
-async def search_kb_endpoint(request: Request, query: str, limit: int = 5, user_id: str = "web-user"):
+async def search_kb_endpoint(request: Request, query: str, limit: int = 5, user_id: str = Depends(require_user)):
     """Búsqueda rápida (Híbrida + RRF) para el dropdown del topbar."""
     results = search_knowledge_base(query, match_count=limit, user_id=user_id)
     return results
 
 @app.post("/search/rag")
 @limiter.limit("5/minute")
-async def search_rag(request: Request, req: RagRequest):
+async def search_rag(request: Request, req: RagRequest, user_id: str = Depends(require_user)):
     """Búsqueda semántica RAG sobre el Vault del usuario."""
-    answer = generate_rag_response(req.query, user_id=req.user_id)
+    answer = generate_rag_response(req.query, user_id=user_id)
     sources = []
     # Extraer fuentes del formato de generate_rag_response si incluye la sección de fuentes
     if "### 🔗 Fuentes Consultadas" in answer:
@@ -354,35 +372,35 @@ class RemoveFeedRequest(BaseModel):
 
 @app.get("/rss/feeds")
 @limiter.limit("20/minute")
-async def rss_get_feeds(request: Request, user_id: str = "web-user"):
+async def rss_get_feeds(request: Request, user_id: str = Depends(require_user)):
     """Lista los feeds RSS del usuario."""
     rows = get_feeds(user_id=user_id)
     return [{"id": r[0], "url": r[1], "name": r[2], "categoria": r[3]} for r in rows]
 
 @app.post("/rss/add-feed")
 @limiter.limit("20/minute")
-async def rss_add_feed(request: Request, req: RssFeedRequest):
+async def rss_add_feed(request: Request, req: RssFeedRequest, user_id: str = Depends(require_user)):
     """Agrega un feed RSS a la base de datos."""
     try:
         nombre = req.url.split("/")[2] if "/" in req.url else req.url
-        add_feed(req.url, nombre=nombre, user_id=req.user_id or "web-user")
+        add_feed(req.url, nombre=nombre, user_id=user_id)
         return {"message": "Feed agregado correctamente.", "url": req.url}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/rss/remove-feed")
 @limiter.limit("20/minute")
-async def rss_remove_feed(request: Request, req: RemoveFeedRequest):
+async def rss_remove_feed(request: Request, req: RemoveFeedRequest, user_id: str = Depends(require_user)):
     """Elimina un feed RSS del usuario."""
     try:
-        remove_feed(req.id, user_id=req.user_id or "web-user")
+        remove_feed(req.id, user_id=user_id)
         return {"message": "Feed eliminado correctamente."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/rss/fetch-all")
 @limiter.limit("3/minute")
-async def rss_fetch_all(request: Request, background_tasks: BackgroundTasks):
+async def rss_fetch_all(request: Request, background_tasks: BackgroundTasks, _: str = Depends(require_user)):
     """Procesa todos los feeds RSS registrados."""
     background_tasks.add_task(fetch_new_articles)
     return {"message": "Procesamiento de feeds RSS encolado."}
@@ -393,13 +411,13 @@ class NotebookLMRequest(BaseModel):
 
 @app.post("/analyze/notebooklm")
 @limiter.limit("5/minute")
-async def analyze_notebooklm(request: Request, req: NotebookLMRequest):
+async def analyze_notebooklm(request: Request, req: NotebookLMRequest, user_id: str = Depends(require_user)):
     """Genera un pack de fuentes para NotebookLM sobre un tema."""
     try:
         source_list = generate_source_list(req.topic)
         context_md = generate_context_markdown(req.topic)
         vault_path_env = os.getenv("VAULT_PATH", "/mnt/obsidian-vault")
-        target_dir = os.path.join(vault_path_env, "users", req.user_id, "70_NotebookLM")
+        target_dir = os.path.join(vault_path_env, "users", user_id, "70_NotebookLM")
         os.makedirs(target_dir, exist_ok=True)
         clean_topic = "".join([c if c.isalnum() or c in (' ', '_', '-') else "_" for c in req.topic])
         with open(os.path.join(target_dir, f"sources_{clean_topic}.md"), "w", encoding="utf-8") as f:
@@ -415,10 +433,10 @@ class SyncRequest(BaseModel):
 
 @app.post("/sync/obsidian")
 @limiter.limit("3/minute")
-async def sync_obsidian(request: Request, req: SyncRequest = SyncRequest()):
+async def sync_obsidian(request: Request, user_id: str = Depends(require_user)):
     """Sincroniza las notas del usuario con Obsidian."""
     try:
-        stats = sync_all_to_obsidian(user_id=req.user_id)
+        stats = sync_all_to_obsidian(user_id=user_id)
         return {"message": "Sincronización completada.", "stats": stats}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -428,28 +446,23 @@ class DeduplicateRequest(BaseModel):
 
 @app.post("/vault/deduplicate")
 @limiter.limit("3/minute")
-async def vault_deduplicate(request: Request, req: DeduplicateRequest):
-    user_id = req.user_id or "web-user"
+async def vault_deduplicate(request: Request, user_id: str = Depends(require_user)):
     """
     Escanea el Vault del usuario y elimina fragmentos semánticamente redundantes (>0.90 Jaccard).
-    Útil para "limpiar" el sistema de información repetida.
     """
     try:
         from core.search_engine import dedup_results
-        # Obtener todos los chunks del usuario
-        response = supabase.table("document_chunks").select("*").eq("user_id", user_id).execute()
+        response = supabase_admin.table("document_chunks").select("*").eq("user_id", user_id).execute()
         all_chunks = response.data
         if not all_chunks:
             return {"message": "No hay fragmentos para procesar."}
-            
+
         unique_chunks = dedup_results(all_chunks, threshold=0.90)
-        
         to_delete = [c['id'] for c in all_chunks if c not in unique_chunks]
-        
+
         if to_delete:
-            # Supabase delete por lista de IDs
-            supabase.table("document_chunks").delete().in_("id", to_delete).execute()
-            
+            supabase_admin.table("document_chunks").delete().in_("id", to_delete).execute()
+
         return {
             "total_before": len(all_chunks),
             "total_after": len(unique_chunks),
@@ -465,7 +478,7 @@ async def health():
 
 @app.post("/api/v1/process-url")
 @limiter.limit("10/minute")
-async def process_url(request: Request, req: ProcessRequest, background_tasks: BackgroundTasks):
+async def process_url(request: Request, req: ProcessRequest, background_tasks: BackgroundTasks, user_id: str = Depends(require_user)):
     """
     Recibe la URL y la acción seleccionada. Envía la tarea a segundo plano (background)
     y retorna Inmediatamente 202 Accepted.
