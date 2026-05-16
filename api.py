@@ -49,7 +49,6 @@ async def require_user(credentials: HTTPAuthorizationCredentials = Security(_bea
 
 class InspectRequest(BaseModel):
     url: str
-    user_id: Optional[str] = "admin" # Valor por defecto para retrocompatibilidad simple
 
 class InspectResponse(BaseModel):
     url: str
@@ -60,7 +59,7 @@ class InspectResponse(BaseModel):
 class ProcessRequest(BaseModel):
     url: str
     action: str
-    user_id: Optional[str] = "admin"
+    user_id: str
     force_reprocess: bool = False
     depth: Optional[str] = "20"  # Nuevo campo para DocGrab
     callback_url: Optional[str] = None
@@ -114,10 +113,11 @@ async def send_callback(callback_url: str, payload: dict):
     if not callback_url:
         return
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=10.0) as client:
             await client.post(callback_url, json=payload)
     except Exception as e:
-        print(f"Error sending callback to {callback_url}: {e}")
+        # Fire-and-forget: log but never raise — callback failure must not affect the main flow
+        print(f"[WARN] Callback failed ({callback_url}): {e}")
 
 def background_process(req: ProcessRequest):
     """Procesamiento pesado ejecutado en segundo plano."""
@@ -252,7 +252,6 @@ def background_process(req: ProcessRequest):
 
 class AnalyzeRequest(BaseModel):
     url: str
-    user_id: Optional[str] = "web-user"
     depth: Optional[str] = "20"
 
 @app.post("/analyze/youtube")
