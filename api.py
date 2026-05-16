@@ -1,5 +1,8 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File, Form, Request
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import httpx
 import re
 import tempfile
@@ -21,7 +24,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Deep Audit Knowledge Engine API", version="1.0.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 class InspectRequest(BaseModel):
     url: str
@@ -52,7 +58,8 @@ def identify_url_type(url: str) -> str:
         return "web"
 
 @app.post("/api/v1/inspect-url", response_model=InspectResponse)
-async def inspect_url(req: InspectRequest):
+@limiter.limit("10/minute")
+async def inspect_url(request: Request, req: InspectRequest):
     """
     Recibe una URL cruda (ej. desde Telegram/n8n) y devuelve qué tipo de contenido es
     y qué opciones de procesamiento tiene el usuario.
@@ -231,40 +238,47 @@ class AnalyzeRequest(BaseModel):
     depth: Optional[str] = "20"
 
 @app.post("/analyze/youtube")
-async def analyze_youtube(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+@limiter.limit("5/minute")
+async def analyze_youtube(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks):
     process_req = ProcessRequest(url=req.url, action="Deep Audit (Dev)", user_id=req.user_id)
     background_tasks.add_task(background_process, process_req)
     return {"message": "Análisis de YouTube encolado.", "url": req.url}
 
 @app.post("/analyze/docgrab")
-async def analyze_docgrab(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+@limiter.limit("5/minute")
+async def analyze_docgrab(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks):
     process_req = ProcessRequest(url=req.url, action="Extraer Sitio Completo (DocGrab)", user_id=req.user_id, depth=req.depth)
     background_tasks.add_task(background_process, process_req)
     return {"message": "DocGrab encolado.", "url": req.url, "depth": req.depth}
 
 @app.post("/analyze/github")
-async def analyze_github(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+@limiter.limit("5/minute")
+async def analyze_github(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks):
     """Genera wiki técnica de un repositorio de GitHub."""
     process_req = ProcessRequest(url=req.url, action="Generar Wiki Técnica", user_id=req.user_id)
     background_tasks.add_task(background_process, process_req)
     return {"message": "Análisis de GitHub encolado.", "url": req.url}
 
 @app.post("/analyze/web")
-async def analyze_web(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+@limiter.limit("5/minute")
+async def analyze_web(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks):
     """Extrae y analiza el contenido de un artículo web."""
     process_req = ProcessRequest(url=req.url, action="Resumir Artículo", user_id=req.user_id)
     background_tasks.add_task(background_process, process_req)
     return {"message": "Artículo web encolado.", "url": req.url}
 
 @app.post("/analyze/chef")
-async def analyze_chef(req: AnalyzeRequest, background_tasks: BackgroundTasks):
+@limiter.limit("5/minute")
+async def analyze_chef(request: Request, req: AnalyzeRequest, background_tasks: BackgroundTasks):
     """Extrae recetas de videos de cocina en YouTube."""
     process_req = ProcessRequest(url=req.url, action="Extraer Receta (Chef)", user_id=req.user_id)
     background_tasks.add_task(background_process, process_req)
     return {"message": "Extracción de receta encolada.", "url": req.url}
 
 @app.post("/analyze/audio")
+@limiter.limit("5/minute")
 async def analyze_audio_endpoint(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     user_id: str = Form(default="web-user")
@@ -308,13 +322,15 @@ class RagRequest(BaseModel):
     user_id: Optional[str] = "web-user"
 
 @app.get("/search/knowledge-base")
-async def search_kb_endpoint(query: str, limit: int = 5, user_id: str = "web-user"):
+@limiter.limit("10/minute")
+async def search_kb_endpoint(request: Request, query: str, limit: int = 5, user_id: str = "web-user"):
     """Búsqueda rápida (Híbrida + RRF) para el dropdown del topbar."""
     results = search_knowledge_base(query, match_count=limit, user_id=user_id)
     return results
 
 @app.post("/search/rag")
-async def search_rag(req: RagRequest):
+@limiter.limit("5/minute")
+async def search_rag(request: Request, req: RagRequest):
     """Búsqueda semántica RAG sobre el Vault del usuario."""
     answer = generate_rag_response(req.query, user_id=req.user_id)
     sources = []
@@ -337,13 +353,15 @@ class RemoveFeedRequest(BaseModel):
     user_id: Optional[str] = "web-user"
 
 @app.get("/rss/feeds")
-async def rss_get_feeds(user_id: str = "web-user"):
+@limiter.limit("20/minute")
+async def rss_get_feeds(request: Request, user_id: str = "web-user"):
     """Lista los feeds RSS del usuario."""
     rows = get_feeds(user_id=user_id)
     return [{"id": r[0], "url": r[1], "name": r[2], "categoria": r[3]} for r in rows]
 
 @app.post("/rss/add-feed")
-async def rss_add_feed(req: RssFeedRequest):
+@limiter.limit("20/minute")
+async def rss_add_feed(request: Request, req: RssFeedRequest):
     """Agrega un feed RSS a la base de datos."""
     try:
         nombre = req.url.split("/")[2] if "/" in req.url else req.url
@@ -353,7 +371,8 @@ async def rss_add_feed(req: RssFeedRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/rss/remove-feed")
-async def rss_remove_feed(req: RemoveFeedRequest):
+@limiter.limit("20/minute")
+async def rss_remove_feed(request: Request, req: RemoveFeedRequest):
     """Elimina un feed RSS del usuario."""
     try:
         remove_feed(req.id, user_id=req.user_id or "web-user")
@@ -362,7 +381,8 @@ async def rss_remove_feed(req: RemoveFeedRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/rss/fetch-all")
-async def rss_fetch_all(background_tasks: BackgroundTasks):
+@limiter.limit("3/minute")
+async def rss_fetch_all(request: Request, background_tasks: BackgroundTasks):
     """Procesa todos los feeds RSS registrados."""
     background_tasks.add_task(fetch_new_articles)
     return {"message": "Procesamiento de feeds RSS encolado."}
@@ -372,7 +392,8 @@ class NotebookLMRequest(BaseModel):
     user_id: Optional[str] = "web-user"
 
 @app.post("/analyze/notebooklm")
-async def analyze_notebooklm(req: NotebookLMRequest):
+@limiter.limit("5/minute")
+async def analyze_notebooklm(request: Request, req: NotebookLMRequest):
     """Genera un pack de fuentes para NotebookLM sobre un tema."""
     try:
         source_list = generate_source_list(req.topic)
@@ -393,7 +414,8 @@ class SyncRequest(BaseModel):
     user_id: Optional[str] = None
 
 @app.post("/sync/obsidian")
-async def sync_obsidian(req: SyncRequest = SyncRequest()):
+@limiter.limit("3/minute")
+async def sync_obsidian(request: Request, req: SyncRequest = SyncRequest()):
     """Sincroniza las notas del usuario con Obsidian."""
     try:
         stats = sync_all_to_obsidian(user_id=req.user_id)
@@ -405,7 +427,8 @@ class DeduplicateRequest(BaseModel):
     user_id: Optional[str] = "web-user"
 
 @app.post("/vault/deduplicate")
-async def vault_deduplicate(req: DeduplicateRequest):
+@limiter.limit("3/minute")
+async def vault_deduplicate(request: Request, req: DeduplicateRequest):
     user_id = req.user_id or "web-user"
     """
     Escanea el Vault del usuario y elimina fragmentos semánticamente redundantes (>0.90 Jaccard).
@@ -441,7 +464,8 @@ async def health():
     return {"status": "ok"}
 
 @app.post("/api/v1/process-url")
-async def process_url(req: ProcessRequest, background_tasks: BackgroundTasks):
+@limiter.limit("10/minute")
+async def process_url(request: Request, req: ProcessRequest, background_tasks: BackgroundTasks):
     """
     Recibe la URL y la acción seleccionada. Envía la tarea a segundo plano (background)
     y retorna Inmediatamente 202 Accepted.
